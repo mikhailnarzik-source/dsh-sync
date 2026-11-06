@@ -105,12 +105,16 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const t = ctx.locale.bind(NS);
       ctx.effect(() => ctx.locale.register(NS, { en, ru }), 'dsh-sync: card dictionaries');
-      ctx.effect(() => {
-        const style = document.createElement('style');
-        style.textContent = '@keyframes dsh-sync-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
-        document.head.appendChild(style);
-        return () => style.remove();
-      }, 'dsh-sync: keyframes');
+      try {
+        ctx.effect(() => {
+          const style = document.createElement('style');
+          style.textContent = '@keyframes dsh-sync-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+          document.head.appendChild(style);
+          return () => style.remove();
+        }, 'dsh-sync: keyframes');
+      } catch (error) {
+        console.error('[dsh-sync] анимация недоступна:', error);
+      }
 
       const listeners = new Set();
       let snapshot = { loading: true, data: null, error: '', busy: '', notice: '' };
@@ -386,20 +390,44 @@ window.__ModuleLoader__.load({
         );
       }
 
+      /** Короткое имя зеркала для подсказки: «github.com/user/repo». */
+      let remoteHint;
+      const loadRemoteHint = async () => {
+        if (remoteHint !== undefined) return remoteHint;
+        try {
+          const data = await post(STATE_PATH, {});
+          const remote = data?.config?.remote;
+          remoteHint = typeof remote === 'string' && remote.length > 0
+            ? remote.replace(/^https?:\/\//, '').replace(/^git@/, '').replace(/\.git$/, '').replace(':', '/')
+            : null;
+        } catch {
+          remoteHint = null;
+        }
+        return remoteHint;
+      };
+
       function HeaderSyncButton() {
         const [phase, setPhase] = React.useState('idle');
-        const [hint, setHint] = React.useState('Синхронизировать сессии');
+        const [hint, setHint] = React.useState('Синхронизировать сессии этого проекта с удалённым зеркалом');
         const [hover, setHover] = React.useState(false);
+
+        const idleHint = 'Синхронизировать сессии этого проекта с удалённым зеркалом';
+
+        React.useEffect(() => {
+          void loadRemoteHint().then((target) => {
+            if (target) setHint(`Синхронизировать сессии с ${target}`);
+          });
+        }, []);
 
         const run = async () => {
           if (phase === 'busy') return;
           setPhase('busy');
-          setHint('Синхронизация…');
+          setHint('Синхронизация сессий: приём и отправка…');
           try {
             const result = await post(RUN_PATH, { action: 'sync' });
             if (result?.ok === true) {
               setPhase('ok');
-              setHint(result.message || 'Синхронизировано');
+              setHint(result.message || 'Сессии синхронизированы');
             } else {
               setPhase('error');
               setHint(result?.message ?? 'Синхронизация не удалась');
@@ -410,13 +438,14 @@ window.__ModuleLoader__.load({
           }
           setTimeout(() => {
             setPhase('idle');
-            setHint('Синхронизировать сессии');
+            setHint(idleHint);
           }, 5000);
         };
 
         const tint = phase === 'error' ? '#d1242f' : phase === 'ok' ? '#2f9e44' : 'currentColor';
         const spin = phase === 'busy';
         const lamp = phase === 'ok' || phase === 'error' ? (phase === 'ok' ? '#2f9e44' : '#d1242f') : null;
+        const label = phase === 'busy' ? 'Синхронизация сессий…' : 'Синхронизация сессий';
 
         return h(
           'button',
@@ -428,29 +457,31 @@ window.__ModuleLoader__.load({
             onMouseEnter: () => setHover(true),
             onMouseLeave: () => setHover(false),
             style: {
-              position: 'relative',
               display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              width: 28,
+              gap: 6,
               height: 28,
-              padding: 0,
-              border: 'none',
+              padding: '0 10px',
               borderRadius: 8,
-              background: hover ? 'rgba(128,128,128,0.16)' : 'transparent',
-              color: tint,
+              border: `1px solid ${hover ? 'rgba(128,128,128,0.45)' : 'rgba(128,128,128,0.32)'}`,
+              background: hover ? 'rgba(128,128,128,0.18)' : 'rgba(128,128,128,0.10)',
+              color: 'inherit',
+              font: 'inherit',
+              fontSize: 12.5,
+              fontWeight: 500,
+              lineHeight: 1,
               cursor: phase === 'busy' ? 'progress' : 'pointer',
-              transition: 'background 120ms ease, color 120ms ease',
+              transition: 'background 120ms ease, border-color 120ms ease',
             },
           },
           h(
             'svg',
             {
-              width: 16,
-              height: 16,
+              width: 14,
+              height: 14,
               viewBox: '0 0 24 24',
               fill: 'none',
-              stroke: 'currentColor',
+              stroke: tint,
               strokeWidth: 2,
               strokeLinecap: 'round',
               strokeLinejoin: 'round',
@@ -459,18 +490,17 @@ window.__ModuleLoader__.load({
             h('path', { d: 'M21 12a9 9 0 0 1-9 9 9 9 0 0 1-9-9 9 9 0 0 1 9-9' }),
             h('path', { d: 'M21 3v6h-6' }),
           ),
+          h('span', null, label),
           lamp === null
             ? null
             : h('span', {
                 style: {
-                  position: 'absolute',
-                  right: 2,
-                  bottom: 2,
                   width: 7,
                   height: 7,
                   borderRadius: 4,
                   background: lamp,
-                  boxShadow: '0 0 0 1.5px rgba(0,0,0,0.18)',
+                  marginLeft: 2,
+                  boxShadow: '0 0 0 1.5px rgba(0,0,0,0.12)',
                 },
               }),
         );
@@ -484,12 +514,18 @@ window.__ModuleLoader__.load({
         locale: NS,
       }, SyncCard));
 
-      ctx.effect(() => ctx.slots.register({
-        name: 'conversation.session.header.actions',
-        id: 'dsh-sync',
-        order: 40,
-        locale: NS,
-      }, HeaderSyncButton), 'dsh-sync: header sync button');
+      // Кнопка в шапке — необязательное украшение: если слот не отдаётся,
+      // плагин должен продолжать работать, а не ломать загрузку приложения.
+      try {
+        ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+          name: 'conversation.session.header.actions',
+          id: 'dsh-sync',
+          order: 40,
+          locale: NS,
+        }, HeaderSyncButton));
+      } catch (error) {
+        console.error('[dsh-sync] кнопка в шапке недоступна:', error);
+      }
     }
 
     exports.apply = apply;

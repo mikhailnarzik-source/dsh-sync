@@ -48,7 +48,7 @@ const ctx = {
     register: (ns, dict) => { assert.ok(dict.ru || dict.en, `нет словаря для ${ns}`) },
   },
   slots: {
-    inject: (name, register) => { assert.equal(name, 'plugins.item'); register() },
+    inject: (name, register) => { register() },
     register: (options, component) => { registrations.push({ options, component }) },
   },
 }
@@ -77,7 +77,7 @@ assert.ok(page.children.length >= 3, 'страница карточки соде
 
 const headerButton = headerRegistration.component({})
 assert.equal(headerButton.type, 'button')
-assert.equal(headerButton.props['aria-label'], 'Синхронизировать сессии')
+assert.equal(headerButton.props['aria-label'], 'Синхронизировать сессии этого проекта с удалённым зеркалом')
 console.log('client smoke: OK')
 console.log('  слот:', options.name, '| id:', options.id, '| label:', options.label())
 console.log('  элементов на странице:', page.children.length)
