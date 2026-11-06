@@ -17,6 +17,7 @@ import { readFile as readFileText } from 'node:fs/promises'
 
 import { defaultConfig, loadConfig, saveConfig } from './lib/config.mjs'
 import { encodeSegment, projectKey, samePath } from './lib/format.mjs'
+import { collectDiagnostics } from './lib/diagnostics.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
@@ -30,6 +31,7 @@ const STATE_PATH = '/api/dsh-sync/state'
 const CONFIG_PATH = '/api/dsh-sync/config'
 const RUN_PATH = '/api/dsh-sync/run'
 const CREATE_REPO_PATH = '/api/dsh-sync/create-repo'
+const DIAG_PATH = '/api/dsh-sync/diagnostics'
 
 /** Инструменты возвращают текст: DSH требует явное описание вывода. */
 const TEXT_OUTPUT = {
@@ -996,6 +998,17 @@ export function apply(ctx) {
   route('create-repo', CREATE_REPO_PATH, async () => {
     try {
       return json(await createRepository(ctx))
+    } catch (error) {
+      return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
+    }
+  })
+
+  route('diagnostics', DIAG_PATH, async () => {
+    try {
+      const probe = await runCapture('git', ['--version'])
+      const gitVersion = probe.code === 0 ? probe.stdout.trim().replace(/^git version\s*/, '') : 'не найден'
+      const report = await collectDiagnostics(dshHome(), { gitVersion })
+      return json({ ok: true, report })
     } catch (error) {
       return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
     }

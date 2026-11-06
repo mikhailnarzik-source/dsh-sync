@@ -26,7 +26,7 @@ assert.equal(name, 'dsh-sync')
 assert.deepEqual(inject, ['connection', 'tools', 'sessionPersistence'])
 apply(ctx)
 
-assert.deepEqual([...routes.keys()].sort(), ['/api/dsh-sync/config', '/api/dsh-sync/create-repo', '/api/dsh-sync/run', '/api/dsh-sync/state'])
+assert.deepEqual([...routes.keys()].sort(), ['/api/dsh-sync/config', '/api/dsh-sync/create-repo', '/api/dsh-sync/diagnostics', '/api/dsh-sync/run', '/api/dsh-sync/state'])
 assert.deepEqual([...tools.keys()].sort(), ['sync_run', 'sync_status'])
 
 const call = async (path, payload) => {
@@ -155,6 +155,11 @@ assert.equal(profileState.mode, 'builtin')
 const noToken = await call('/api/dsh-sync/create-repo', {})
 assert.equal(noToken.body.ok, false)
 assert.equal(noToken.body.code, 'no-token')
+
+// 11. диагностика собирается без внешних сервисов
+const diagnostics = await call('/api/dsh-sync/diagnostics', {})
+assert.equal(diagnostics.body.ok, true)
+assert.match(diagnostics.body.report, /диагностика/i)
 
 console.log('plugin smoke: OK')
 console.log('  маршруты:', [...routes.keys()].join(', '))

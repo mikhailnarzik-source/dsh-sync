@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
     const CONFIG_PATH = '/api/dsh-sync/config';
     const RUN_PATH = '/api/dsh-sync/run';
     const CREATE_REPO_PATH = '/api/dsh-sync/create-repo';
+    const DIAG_PATH = '/api/dsh-sync/diagnostics';
 
     const en = { title: 'Session sync' };
     const ru = { title: 'Синхронизация сессий' };
@@ -232,6 +233,25 @@ window.__ModuleLoader__.load({
           }
         };
 
+        const copyDiagnostics = async () => {
+          publish({ busy: 'diag', notice: '', error: '' });
+          try {
+            const result = await post(DIAG_PATH, {});
+            if (result?.ok !== true) {
+              publish({ busy: '', error: result?.message ?? 'Не удалось собрать диагностику' });
+              return;
+            }
+            try {
+              await navigator.clipboard.writeText(result.report);
+              publish({ busy: '', notice: 'Диагностика скопирована в буфер обмена' });
+            } catch {
+              publish({ busy: '', notice: result.report.slice(0, 4000) });
+            }
+          } catch (error) {
+            publish({ busy: '', error: explain(error) });
+          }
+        };
+
         const checks = data?.checks ?? [];
         const busy = state.busy !== '';
         const status = data?.status;
@@ -332,6 +352,16 @@ window.__ModuleLoader__.load({
                   onClick: () => void createRepo(),
                 },
                 state.busy === 'create' ? 'Создание…' : 'Создать репозиторий',
+              ),
+              h(
+                'button',
+                {
+                  style: S.button,
+                  disabled: busy,
+                  title: 'Собрать отчёт о состоянии и скопировать в буфер обмена',
+                  onClick: () => void copyDiagnostics(),
+                },
+                state.busy === 'diag' ? 'Сбор…' : 'Диагностика',
               ),
             ),
             h(

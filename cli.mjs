@@ -12,11 +12,13 @@
  *   dsh-sync pull
  */
 import { join } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { loadConfig, normalizeProjectId, resolveDshHome, saveConfig } from './lib/config.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
-import { ensureRepo, setRemote } from './lib/git.mjs'
+import { ensureRepo, git, setRemote } from './lib/git.mjs'
+import { collectDiagnostics } from './lib/diagnostics.mjs'
 
 const VALUE_FLAGS = new Set(['home', 'remote', 'repo', 'branch', 'path', 'title', 'project', 'backend'])
 
@@ -25,7 +27,7 @@ function parseArgs(argv) {
   const positional = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === '--dry-run' || arg === '--prune' || arg === '--no-prune' || arg === '--attachments') {
+    if (arg === '--dry-run' || arg === '--prune' || arg === '--no-prune' || arg === '--attachments' || arg === '--save') {
       opts[arg.slice(2)] = true
       continue
     }
@@ -102,6 +104,23 @@ async function cmdProject(sub, rest, opts) {
   }
 }
 
+async function cmdDiagnostics(opts) {
+  const dshHome = home(opts)
+  let gitVersion = 'не найден'
+  const probe = await git(dshHome, ['--version'], { allowFailure: true })
+  if (probe.code === 0) gitVersion = probe.stdout.trim().replace(/^git version\s*/, '')
+  const report = await collectDiagnostics(dshHome, { gitVersion })
+  console.log(report)
+  if (opts.save) {
+    const dir = join(dshHome, 'dsh-sync')
+    await mkdir(dir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const file = join(dir, `diagnostics-${stamp}.txt`)
+    await writeFile(file, `${report}\n`, 'utf8')
+    console.log(`\nсохранено: ${file}`)
+  }
+}
+
 async function cmdStatus(opts) {
   const dshHome = home(opts)
   const config = await loadConfig(dshHome)
@@ -161,6 +180,7 @@ async function main() {
   }
 
   if (command === 'status') return cmdStatus(opts)
+  if (command === 'diagnostics') return cmdDiagnostics(opts)
 
   console.log('использование:')
   console.log('  dsh-sync init --backend git|folder --repo <каталог> [--remote <git-url>] [--branch main]')
