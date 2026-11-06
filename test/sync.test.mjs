@@ -168,6 +168,21 @@ test('расхождение сохраняет обе стороны: лока�
   }
 })
 
+test('лог без сжатия (JSONL) тоже переносится', () => {
+  const header = headerFor(process.platform === 'win32' ? 'C:\\work\\plain' : '/work/plain')
+  const plain = Buffer.from(`${JSON.stringify(header)}\n${JSON.stringify({ seq: 0 })}\n${JSON.stringify({ seq: 1 })}\n`)
+  const canonical = canonicalize(plain, 'alpha')
+  const parsed = splitLog(canonical)
+
+  assert.equal(parsed.header.cwd, canonicalCwd('alpha'))
+  assert.equal(parsed.plain, true)
+  assert.deepEqual(parsed.tail, plain.subarray(plain.indexOf(0x0a) + 1))
+
+  const back = remapTo(canonical, process.platform === 'win32' ? 'D:\\plain' : '/home/user/plain')
+  assert.equal(splitLog(back).header.cwd, process.platform === 'win32' ? 'D:\\plain' : '/home/user/plain')
+  assert.deepEqual(splitLog(back).tail, parsed.tail)
+})
+
 test('push удаляет из зеркала сессии, удалённые локально', async () => {
   const env = await makeEnvironment()
   try {

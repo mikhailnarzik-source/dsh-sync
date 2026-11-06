@@ -1,16 +1,46 @@
 {
   "name": "dsh-sync",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "Синхронизация сессий DeepSeek Harness между устройствами: git-зеркало или папка облака, карточка настроек и кнопка синхронизации в DSH",
   "type": "module",
-  "description": "Кроссплатформенный обмен сессиями DeepSeek Harness через git-зеркало с нейтральными путями",
+  "license": "MIT",
+  "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "session-sync", "git"],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
   "bin": {
     "dsh-sync": "./cli.mjs"
   },
+  "files": [
+    "index.js",
+    "client.js",
+    "cli.mjs",
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22.15"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
   }
 }
