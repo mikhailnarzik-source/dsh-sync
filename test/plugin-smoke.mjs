@@ -26,7 +26,7 @@ assert.equal(name, 'dsh-sync')
 assert.deepEqual(inject, ['connection', 'tools', 'sessionPersistence'])
 apply(ctx)
 
-assert.deepEqual([...routes.keys()].sort(), ['/api/dsh-sync/config', '/api/dsh-sync/run', '/api/dsh-sync/state'])
+assert.deepEqual([...routes.keys()].sort(), ['/api/dsh-sync/config', '/api/dsh-sync/create-repo', '/api/dsh-sync/run', '/api/dsh-sync/state'])
 assert.deepEqual([...tools.keys()].sort(), ['sync_run', 'sync_status'])
 
 const call = async (path, payload) => {
@@ -150,6 +150,11 @@ assert.equal(profileState.external.callable, false)
 assert.equal(profileState.external.name, 'dsh-session-sync')
 assert.equal(profileState.external.configured, true)
 assert.equal(profileState.mode, 'builtin')
+
+// 10. создание репозитория без токена возвращает понятную причину
+const noToken = await call('/api/dsh-sync/create-repo', {})
+assert.equal(noToken.body.ok, false)
+assert.equal(noToken.body.code, 'no-token')
 
 console.log('plugin smoke: OK')
 console.log('  маршруты:', [...routes.keys()].join(', '))

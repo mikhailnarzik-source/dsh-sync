@@ -29,6 +29,7 @@ export const inject = ['connection', 'tools', 'sessionPersistence']
 const STATE_PATH = '/api/dsh-sync/state'
 const CONFIG_PATH = '/api/dsh-sync/config'
 const RUN_PATH = '/api/dsh-sync/run'
+const CREATE_REPO_PATH = '/api/dsh-sync/create-repo'
 
 /** Инструменты возвращают текст: DSH требует явное описание вывода. */
 const TEXT_OUTPUT = {
@@ -826,6 +827,95 @@ async function ensureProjectDefaults(ctx) {
   return config
 }
 
+/**
+ * Создать приватный репозиторий для зеркала и прописать его в настройках.
+ * Токен читается из хранилища DSH и в браузер не возвращается.
+ */
+async function createRepository(ctx) {
+  const home = dshHome()
+  const config = await loadConfig(home)
+
+  let token
+  try {
+    const credentials = ctx?.get?.('credentials')
+    const hit = await credentials?.resolve?.('GITHUB_TOKEN')
+    token = typeof hit?.value === 'string' && hit.value.length > 0 ? hit.value : undefined
+  } catch {
+    token = undefined
+  }
+  if (token === undefined) {
+    return {
+      ok: false,
+      code: 'no-token',
+      message: 'В хранилище DSH нет токена GitHub. Создайте приватный репозиторий вручную и вставьте его HTTPS-адрес в поле выше.',
+    }
+  }
+
+  const headers = {
+    authorization: `Bearer ${token}`,
+    accept: 'application/vnd.github+json',
+    'user-agent': 'dsh-sync',
+    'x-github-api-version': '2022-11-28',
+    'content-type': 'application/json',
+  }
+  const repoName = 'dsh-sessions'
+
+  try {
+    const me = await fetch('https://api.github.com/user', { headers })
+    if (!me.ok) {
+      return { ok: false, code: 'unauthorized', message: `GitHub не принял токен (${me.status}). Обновите токен в настройках DSH.` }
+    }
+    const login = (await me.json())?.login
+    if (typeof login !== 'string' || login.length === 0) {
+      return { ok: false, code: 'no-login', message: 'Не удалось определить владельца токена на GitHub.' }
+    }
+
+    const existing = await fetch(`https://api.github.com/repos/${login}/${repoName}`, { headers })
+    if (existing.ok) {
+      const repo = await existing.json()
+      const remote = typeof repo?.clone_url === 'string' ? repo.clone_url : ''
+      if (remote !== '') {
+        config.remote = remote
+        await saveConfig(home, config)
+        return { ok: true, created: false, remote, message: `Репозиторий уже существует: ${login}/${repoName}` }
+      }
+    }
+
+    const created = await fetch('https://api.github.com/user/repos', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: repoName,
+        private: true,
+        description: 'Зеркало сессий DeepSeek Harness (dsh-sync)',
+        auto_init: false,
+      }),
+    })
+    if (!created.ok) {
+      const detail = await created.text().catch(() => '')
+      return {
+        ok: false,
+        code: 'create-failed',
+        message: `GitHub ответил ${created.status}: ${detail.slice(0, 200)}. Создайте приватный репозиторий вручную и вставьте адрес в поле.`,
+      }
+    }
+    const repo = await created.json()
+    const remote = typeof repo?.clone_url === 'string' ? repo.clone_url : ''
+    if (remote === '') {
+      return { ok: false, code: 'no-url', message: 'Репозиторий создан, но GitHub не вернул адрес. Скопируйте HTTPS-адрес вручную.' }
+    }
+    config.remote = remote
+    await saveConfig(home, config)
+    return { ok: true, created: true, remote, message: `Создан приватный репозиторий ${login}/${repoName}` }
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'network',
+      message: `Не удалось связаться с GitHub: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
 /** Подхватить проекты из метаданных зеркала, сопоставив их с локальными путями. */
 async function adoptMirrorProjects(ctx, config, pullResult) {
   const projects = pullResult?.mirrorProjects ?? []
@@ -898,6 +988,14 @@ export function apply(ctx) {
     const action = ['sync', 'pull', 'push'].includes(payload.action) ? payload.action : 'sync'
     try {
       return json(await runSync(ctx, action))
+    } catch (error) {
+      return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
+    }
+  })
+
+  route('create-repo', CREATE_REPO_PATH, async () => {
+    try {
+      return json(await createRepository(ctx))
     } catch (error) {
       return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
     }

@@ -18,6 +18,7 @@ window.__ModuleLoader__.load({
     const STATE_PATH = '/api/dsh-sync/state';
     const CONFIG_PATH = '/api/dsh-sync/config';
     const RUN_PATH = '/api/dsh-sync/run';
+    const CREATE_REPO_PATH = '/api/dsh-sync/create-repo';
 
     const en = { title: 'Session sync' };
     const ru = { title: 'Синхронизация сессий' };
@@ -214,6 +215,23 @@ window.__ModuleLoader__.load({
           setDraft((current) => ({ ...current, ...patch }));
         };
 
+        const createRepo = async () => {
+          publish({ busy: 'create', notice: '', error: '' });
+          try {
+            const result = await post(CREATE_REPO_PATH, {});
+            if (result?.ok === true) {
+              setDraft((current) => ({ ...current, remote: result.remote ?? current.remote }));
+              setTouched(true);
+              publish({ busy: '', notice: result.message ?? 'Репозиторий готов' });
+              await run('sync');
+            } else {
+              publish({ busy: '', error: result?.message ?? 'Не удалось создать репозиторий' });
+            }
+          } catch (error) {
+            publish({ busy: '', error: explain(error) });
+          }
+        };
+
         const checks = data?.checks ?? [];
         const busy = state.busy !== '';
         const status = data?.status;
@@ -305,6 +323,21 @@ window.__ModuleLoader__.load({
                 },
                 state.busy === 'save' ? 'Сохранение…' : 'Сохранить',
               ),
+              h(
+                'button',
+                {
+                  style: S.button,
+                  disabled: busy,
+                  title: 'Создать приватный репозиторий dsh-sessions в вашем аккаунте GitHub',
+                  onClick: () => void createRepo(),
+                },
+                state.busy === 'create' ? 'Создание…' : 'Создать репозиторий',
+              ),
+            ),
+            h(
+              'span',
+              { style: S.hint },
+              'Репозиторий создаётся приватным через токен GitHub из хранилища DSH. Если токена нет — создайте репозиторий вручную и вставьте его HTTPS-адрес выше.',
             ),
           ),
 
