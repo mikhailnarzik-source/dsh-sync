@@ -17,6 +17,7 @@ import { readFile as readFileText } from 'node:fs/promises'
 
 import { defaultConfig, loadConfig, saveConfig } from './lib/config.mjs'
 import { encodeSegment, projectKey, samePath } from './lib/format.mjs'
+import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
 
@@ -37,6 +38,18 @@ const TEXT_OUTPUT = {
 
 const LAST_RUN_FILE = 'last-run.json'
 const PLUGIN_STATUS_FILE = 'plugin-status.json'
+
+/** Состояние фоновой синхронизации (в памяти процесса). */
+const automation = {
+  enabled: false,
+  running: false,
+  lastPullAt: 0,
+  lastPushAt: 0,
+  lastTickAt: 0,
+  lastError: '',
+  fingerprint: '',
+  timer: null,
+}
 
 /** Кеш сетевого опроса зеркала (ls-remote дорогой). */
 const REMOTE_PROBE_TTL_MS = 60_000
@@ -336,6 +349,14 @@ async function readState(ctx) {
     checks,
     ready: checks.every(check => check.ok),
     status: { local, mirror, onlyLocal, onlyMirror },
+    automation: {
+      enabled: automation.enabled,
+      running: automation.running,
+      lastPullAt: automation.lastPullAt === 0 ? null : new Date(automation.lastPullAt).toISOString(),
+      lastPushAt: automation.lastPushAt === 0 ? null : new Date(automation.lastPushAt).toISOString(),
+      lastError: automation.lastError,
+      settings: config.autoSync ?? {},
+    },
     debug: { home, sessionsScanned: scanned, cwds: [...cwds], projectPath: project?.path ?? '', scanError, source: located.source },
     lastRun,
   }
@@ -529,6 +550,14 @@ async function runSync(ctx, action) {
       result.pull = await pull({ home, config })
       messages.push(`принято: ${result.pull.imported}, обновлено: ${result.pull.updated}, конфликтов: ${result.pull.conflicts}`)
       if (result.pull.errors?.length) messages.push(`ошибок чтения: ${result.pull.errors.length} (${result.pull.errors[0].message})`)
+
+      // В зеркале могут быть проекты, которых здесь ещё нет: подхватываем по имени.
+      const adopted = await adoptMirrorProjects(ctx, config, result.pull)
+      if (adopted > 0) {
+        result.pull = await pull({ home, config })
+        messages.push(`подхвачено проектов из зеркала: ${adopted}; принято: ${result.pull.imported}`)
+        if (result.pull.errors?.length) messages.push(`ошибок чтения: ${result.pull.errors.length} (${result.pull.errors[0].message})`)
+      }
     }
     if (action !== 'pull') {
       const entry = Object.values(config.projects ?? {})[0]
@@ -640,6 +669,204 @@ async function body(request) {
   }
 }
 
+/**
+ * Отпечаток локального стора: меняется, когда в сессиях появляются события.
+ * Берётся у сервиса сессий, поэтому не зависит от доступа к каталогу.
+ */
+async function computeFingerprint(ctx) {
+  const persistence = ctx?.get?.('sessionPersistence')
+  if (persistence === undefined || persistence === null || typeof persistence.list !== 'function') return ''
+  try {
+    const list = await persistence.list()
+    return (list ?? [])
+      .map(snapshot => `${snapshot?.header?.id ?? '?'}:${snapshot?.sizeBytes ?? 0}`)
+      .sort()
+      .join('|')
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Один такт фоновой синхронизации: приём по расписанию и отправка при
+ * изменениях, но не чаще заданного окна.
+ */
+async function autoTick(ctx) {
+  if (automation.running) return
+  automation.lastTickAt = Date.now()
+
+  const home = dshHome()
+  let config
+  try {
+    config = await loadConfig(home)
+  } catch {
+    return
+  }
+  const options = config.autoSync ?? {}
+  if (options.enabled === false || Object.keys(config.projects ?? {}).length === 0) return
+
+  automation.running = true
+  try {
+    const now = Date.now()
+    const pullEvery = (options.pullIntervalMinutes ?? 15) * 60_000
+    const pushEvery = (options.pushMinIntervalMinutes ?? 5) * 60_000
+
+    if (automation.lastPullAt === 0 && options.pullOnStart !== false) {
+      await runSync(ctx, 'pull')
+      automation.lastPullAt = Date.now()
+    } else if (pullEvery > 0 && now - automation.lastPullAt >= pullEvery) {
+      await runSync(ctx, 'pull')
+      automation.lastPullAt = Date.now()
+    }
+
+    const fingerprint = await computeFingerprint(ctx)
+    if (fingerprint !== '' && fingerprint !== automation.fingerprint) {
+      if (now - automation.lastPushAt >= pushEvery) {
+        const record = await runSync(ctx, 'push')
+        automation.lastPushAt = Date.now()
+        automation.lastError = record?.ok === true ? '' : String(record?.message ?? '')
+        automation.fingerprint = fingerprint
+      }
+    }
+  } catch (error) {
+    automation.lastError = error instanceof Error ? error.message : String(error)
+  } finally {
+    automation.running = false
+  }
+}
+
+/** Пути всех workspace, которые видит DSH. */
+function workspacePaths(ctx) {
+  try {
+    const registry = ctx?.get?.('workspaceRegistry')
+    if (registry !== undefined && registry !== null && typeof registry.list === 'function') {
+      return (registry.list() ?? [])
+        .map(workspace => workspace?.path ?? workspace?.record?.path)
+        .filter(path => typeof path === 'string' && path.length > 0)
+    }
+  } catch {
+    // реестр недоступен — работаем без него
+  }
+  return []
+}
+
+/** Имена репозиториев, которые имеет смысл искать в аккаунте. */
+const REPO_CANDIDATES = ['dsh-sessions', 'dsh-sync-sessions', 'dsh-sync']
+
+/**
+ * Найти репозиторий зеркала по токену GitHub из хранилища DSH. Только чтение:
+ * запрашиваем логин и наличие репозитория с ожидаемым именем.
+ */
+async function discoverRepository(ctx) {
+  let token
+  try {
+    const credentials = ctx?.get?.('credentials')
+    const hit = await credentials?.resolve?.('GITHUB_TOKEN')
+    token = typeof hit?.value === 'string' && hit.value.length > 0 ? hit.value : undefined
+  } catch {
+    token = undefined
+  }
+  if (token === undefined) return undefined
+
+  const headers = {
+    authorization: `Bearer ${token}`,
+    accept: 'application/vnd.github+json',
+    'user-agent': 'dsh-sync',
+    'x-github-api-version': '2022-11-28',
+  }
+
+  try {
+    const me = await fetch('https://api.github.com/user', { headers })
+    if (!me.ok) return undefined
+    const login = (await me.json())?.login
+    if (typeof login !== 'string' || login.length === 0) return undefined
+
+    for (const name of REPO_CANDIDATES) {
+      const response = await fetch(`https://api.github.com/repos/${login}/${name}`, { headers })
+      if (!response.ok) continue
+      const repo = await response.json()
+      if (typeof repo?.clone_url === 'string') return repo.clone_url
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+/**
+ * Если проекты не настроены, взять первый workspace из DSH: путь и id
+ * подставляются сами. Если не задан репозиторий — попробовать найти его в
+ * аккаунте GitHub по сохранённому токену.
+ */
+async function ensureProjectDefaults(ctx) {
+  const home = dshHome()
+  const config = await loadConfig(home)
+  let changed = false
+
+  if (Object.keys(config.projects ?? {}).length === 0) {
+    const paths = workspacePaths(ctx)
+    const path = paths[0]
+    if (typeof path === 'string' && path.length > 0) {
+      const folder = path.split(/[\\/]/).filter(Boolean).pop() ?? 'default'
+      const id = folder.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'default'
+      config.projects = { [id]: { path, title: folder } }
+      changed = true
+    }
+  }
+
+  if ((config.remote ?? '').length === 0) {
+    const remote = await discoverRepository(ctx)
+    if (remote !== undefined) {
+      config.remote = remote
+      changed = true
+    }
+  }
+
+  if (changed) await saveConfig(home, config)
+  return config
+}
+
+/** Подхватить проекты из метаданных зеркала, сопоставив их с локальными путями. */
+async function adoptMirrorProjects(ctx, config, pullResult) {
+  const projects = pullResult?.mirrorProjects ?? []
+  if (projects.length === 0) return 0
+  const paths = workspacePaths(ctx)
+  if (paths.length === 0) return 0
+
+  let added = 0
+  for (const project of projects) {
+    if (config.projects?.[project.id] !== undefined) continue
+    const path = matchProjectPath(project.id, project.title, paths)
+    if (path === undefined) continue
+    config.projects[project.id] = { path, title: project.title }
+    added += 1
+  }
+  if (added > 0) await saveConfig(dshHome(), config)
+  return added
+}
+
+/** Включить фоновую синхронизацию: первый такт через 10 с, дальше раз в минуту. */
+function startAutomation(ctx) {
+  automation.enabled = true
+  void ensureProjectDefaults(ctx).catch(() => {})
+  ctx.effect(() => {
+    const initial = setTimeout(() => {
+      void autoTick(ctx)
+    }, 10_000)
+    initial.unref?.()
+    const timer = setInterval(() => {
+      void autoTick(ctx)
+    }, 60_000)
+    timer.unref?.()
+    automation.timer = timer
+    return () => {
+      clearTimeout(initial)
+      clearInterval(timer)
+      automation.enabled = false
+    }
+  }, 'dsh-sync: automation')
+}
+
 export function apply(ctx) {
   const failures = []
 
@@ -708,6 +935,11 @@ export function apply(ctx) {
       if (state.lastRun) {
         lines.push(`последний запуск: ${state.lastRun.at} — ${state.lastRun.ok ? 'успешно' : 'ошибка'}: ${state.lastRun.message}`)
       }
+      if (state.automation) {
+        const auto = state.automation
+        lines.push(`автосинхронизация: ${auto.enabled ? 'вкл' : 'выкл'}${auto.running ? ' (выполняется)' : ''}`)
+        lines.push(`  приём: ${auto.lastPullAt ?? 'ещё не было'}, отправка: ${auto.lastPushAt ?? 'ещё не было'}${auto.lastError ? `, ошибка: ${auto.lastError}` : ''}`)
+      }
       return lines.join('\n')
     },
   })
@@ -733,6 +965,7 @@ export function apply(ctx) {
     },
   })
 
+  startAutomation(ctx)
   void writeStatus({ applied: true, version: '0.2.1', pid: process.pid, failures })
 }
 

@@ -360,6 +360,19 @@ window.__ModuleLoader__.load({
                 )
               : h('span', { style: S.hint }, 'Ещё не запускалось.'),
             h('span', { style: S.hint }, 'После приёма новых сессий перезапустите DSH — список обновляется при старте.'),
+            data?.automation
+              ? h(
+                  'span',
+                  { style: data.automation.lastError ? S.error : S.hint },
+                  data.automation.enabled === false
+                    ? 'Автосинхронизация выключена.'
+                    : `Автосинхронизация: приём раз в ${data.automation.settings?.pullIntervalMinutes ?? 15} мин, отправка при изменениях (не чаще ${data.automation.settings?.pushMinIntervalMinutes ?? 5} мин)`
+                      + (data.automation.lastPushAt
+                        ? `; последняя отправка ${new Date(data.automation.lastPushAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+                        : '')
+                      + (data.automation.lastError ? `; ошибка: ${data.automation.lastError}` : ''),
+                )
+              : null,
           ),
 
           state.notice ? h('span', { style: S.ok }, state.notice) : null,
