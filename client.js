@@ -423,122 +423,6 @@ window.__ModuleLoader__.load({
         );
       }
 
-      /** Короткое имя зеркала для подсказки: «github.com/user/repo». */
-      let remoteHint;
-      const loadRemoteHint = async () => {
-        if (remoteHint !== undefined) return remoteHint;
-        try {
-          const data = await post(STATE_PATH, {});
-          const remote = data?.config?.remote;
-          remoteHint = typeof remote === 'string' && remote.length > 0
-            ? remote.replace(/^https?:\/\//, '').replace(/^git@/, '').replace(/\.git$/, '').replace(':', '/')
-            : null;
-        } catch {
-          remoteHint = null;
-        }
-        return remoteHint;
-      };
-
-      function HeaderSyncButton() {
-        const [phase, setPhase] = React.useState('idle');
-        const [hint, setHint] = React.useState('Синхронизировать сессии этого проекта с удалённым зеркалом');
-        const [hover, setHover] = React.useState(false);
-
-        const idleHint = 'Синхронизировать сессии этого проекта с удалённым зеркалом';
-
-        React.useEffect(() => {
-          void loadRemoteHint().then((target) => {
-            if (target) setHint(`Синхронизировать сессии с ${target}`);
-          });
-        }, []);
-
-        const run = async () => {
-          if (phase === 'busy') return;
-          setPhase('busy');
-          setHint('Синхронизация сессий: приём и отправка…');
-          try {
-            const result = await post(RUN_PATH, { action: 'sync' });
-            if (result?.ok === true) {
-              setPhase('ok');
-              setHint(result.message || 'Сессии синхронизированы');
-            } else {
-              setPhase('error');
-              setHint(result?.message ?? 'Синхронизация не удалась');
-            }
-          } catch (error) {
-            setPhase('error');
-            setHint(explain(error));
-          }
-          setTimeout(() => {
-            setPhase('idle');
-            setHint(idleHint);
-          }, 5000);
-        };
-
-        const tint = phase === 'error' ? '#d1242f' : phase === 'ok' ? '#2f9e44' : 'currentColor';
-        const spin = phase === 'busy';
-        const lamp = phase === 'ok' || phase === 'error' ? (phase === 'ok' ? '#2f9e44' : '#d1242f') : null;
-        const label = phase === 'busy' ? 'Синхронизация сессий…' : 'Синхронизация сессий';
-
-        return h(
-          'button',
-          {
-            type: 'button',
-            onClick: run,
-            title: hint,
-            'aria-label': hint,
-            onMouseEnter: () => setHover(true),
-            onMouseLeave: () => setHover(false),
-            style: {
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 28,
-              padding: '0 10px',
-              borderRadius: 8,
-              border: `1px solid ${hover ? 'rgba(128,128,128,0.45)' : 'rgba(128,128,128,0.32)'}`,
-              background: hover ? 'rgba(128,128,128,0.18)' : 'rgba(128,128,128,0.10)',
-              color: 'inherit',
-              font: 'inherit',
-              fontSize: 12.5,
-              fontWeight: 500,
-              lineHeight: 1,
-              cursor: phase === 'busy' ? 'progress' : 'pointer',
-              transition: 'background 120ms ease, border-color 120ms ease',
-            },
-          },
-          h(
-            'svg',
-            {
-              width: 14,
-              height: 14,
-              viewBox: '0 0 24 24',
-              fill: 'none',
-              stroke: tint,
-              strokeWidth: 2,
-              strokeLinecap: 'round',
-              strokeLinejoin: 'round',
-              style: spin ? { animation: 'dsh-sync-spin 900ms linear infinite' } : undefined,
-            },
-            h('path', { d: 'M21 12a9 9 0 0 1-9 9 9 9 0 0 1-9-9 9 9 0 0 1 9-9' }),
-            h('path', { d: 'M21 3v6h-6' }),
-          ),
-          h('span', null, label),
-          lamp === null
-            ? null
-            : h('span', {
-                style: {
-                  width: 7,
-                  height: 7,
-                  borderRadius: 4,
-                  background: lamp,
-                  marginLeft: 2,
-                  boxShadow: '0 0 0 1.5px rgba(0,0,0,0.12)',
-                },
-              }),
-        );
-      }
-
       /**
        * Экран пункта «Синхронизация» в левой панели: это действие, а не
        * настройки. При открытии запускает синхронизацию (если давно не было
@@ -690,25 +574,14 @@ window.__ModuleLoader__.load({
           name: 'sidebar.panellist',
           id: 'dsh-sync',
           order: 6,
-          label: () => 'Синхронизация',
+          label: () => 'Синхронизация сессий',
           locale: NS,
         }, SyncSidebarIcon));
       } catch (error) {
         console.error('[dsh-sync] пункт в левой панели недоступен:', error);
       }
 
-      // Кнопка в шапке — необязательное украшение: если слот не отдаётся,
-      // плагин должен продолжать работать, а не ломать загрузку приложения.
-      try {
-        ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-          name: 'conversation.session.header.actions',
-          id: 'dsh-sync',
-          order: 40,
-          locale: NS,
-        }, HeaderSyncButton));
-      } catch (error) {
-        console.error('[dsh-sync] кнопка в шапке недоступна:', error);
-      }
+      
     }
 
     exports.apply = apply;

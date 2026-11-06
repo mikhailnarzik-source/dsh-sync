@@ -23,7 +23,7 @@ test('git: инициализация, remote, fetch и коммит идут в
   try {
     const { calls, runner } = recorder({
       'remote get-url origin': { code: 128, stdout: '', stderr: 'no such remote' },
-      'status --porcelain': { code: 0, stdout: ' M sessions/alpha/x\n', stderr: '' },
+      'diff --cached --name-only': { code: 0, stdout: 'sessions/alpha/x\n', stderr: '' },
     })
     __setRunnerForTest(runner)
 
@@ -41,8 +41,8 @@ test('git: инициализация, remote, fetch и коммит идут в
       'git -C ' + repoDir + ' remote add origin git@github.com:me/sessions.git',
       'git -C ' + repoDir + ' fetch --quiet origin main',
       'git -C ' + repoDir + ' reset --hard --quiet FETCH_HEAD',
-      'git -C ' + repoDir + ' status --porcelain',
       'git -C ' + repoDir + ' add -A',
+      'git -C ' + repoDir + ' diff --cached --name-only',
       'git -C ' + repoDir + ' -c user.name=dsh-sync -c user.email=dsh-sync@localhost commit --quiet -m test',
       'git -C ' + repoDir + ' push --quiet origin HEAD:main',
     ])
@@ -55,7 +55,7 @@ test('git: инициализация, remote, fetch и коммит идут в
 test('git: без изменений коммит не создаётся', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-sync-git-test-'))
   try {
-    const { calls, runner } = recorder({ 'status --porcelain': { code: 0, stdout: '', stderr: '' } })
+    const { calls, runner } = recorder({ 'diff --cached --name-only': { code: 0, stdout: '', stderr: '' } })
     __setRunnerForTest(runner)
     const repoDir = join(root, 'repo')
     await ensureRepo({ repoDir, branch: 'main' })
@@ -72,7 +72,7 @@ test('git: отклонённый push сообщает о необходимо�
   const root = await mkdtemp(join(tmpdir(), 'dsh-sync-git-test-'))
   try {
     const { runner } = recorder({
-      'status --porcelain': { code: 0, stdout: ' M x\n', stderr: '' },
+      'diff --cached --name-only': { code: 0, stdout: 'x\n', stderr: '' },
       'push --quiet': { code: 1, stdout: '', stderr: 'rejected: non-fast-forward' },
     })
     __setRunnerForTest(runner)

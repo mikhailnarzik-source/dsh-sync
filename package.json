@@ -1,6 +1,6 @@
 {
     "name":  "dsh-sync",
-    "version":  "0.2.8",
+    "version":  "0.2.9",
     "description":  "Синхронизация сессий DeepSeek Harness между устройствами: git-зеркало или папка облака, карточка настроек и кнопка синхронизации в DSH",
     "type":  "module",
     "license":  "MIT",
@@ -43,7 +43,6 @@
                                "inject":  [
                                               "@deepseek-ai/dsh-client-connection",
                                               "@deepseek-ai/dsh-client-locale",
-                                              "@deepseek-ai/dsh-client-ui-conversation",
                                               "@deepseek-ai/dsh-client-ui-plugin-manager",
                                               "@deepseek-ai/dsh-client-ui-settings",
                                               "@deepseek-ai/dsh-client-ui-slots"
