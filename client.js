@@ -416,6 +416,7 @@ window.__ModuleLoader__.load({
 
         const tint = phase === 'error' ? '#d1242f' : phase === 'ok' ? '#2f9e44' : 'currentColor';
         const spin = phase === 'busy';
+        const lamp = phase === 'ok' || phase === 'error' ? (phase === 'ok' ? '#2f9e44' : '#d1242f') : null;
 
         return h(
           'button',
@@ -427,6 +428,7 @@ window.__ModuleLoader__.load({
             onMouseEnter: () => setHover(true),
             onMouseLeave: () => setHover(false),
             style: {
+              position: 'relative',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -457,6 +459,20 @@ window.__ModuleLoader__.load({
             h('path', { d: 'M21 12a9 9 0 0 1-9 9 9 9 0 0 1-9-9 9 9 0 0 1 9-9' }),
             h('path', { d: 'M21 3v6h-6' }),
           ),
+          lamp === null
+            ? null
+            : h('span', {
+                style: {
+                  position: 'absolute',
+                  right: 2,
+                  bottom: 2,
+                  width: 7,
+                  height: 7,
+                  borderRadius: 4,
+                  background: lamp,
+                  boxShadow: '0 0 0 1.5px rgba(0,0,0,0.18)',
+                },
+              }),
         );
       }
 
