@@ -20,6 +20,9 @@ window.__ModuleLoader__.load({
     const RUN_PATH = '/api/dsh-sync/run';
     const CREATE_REPO_PATH = '/api/dsh-sync/create-repo';
     const DIAG_PATH = '/api/dsh-sync/diagnostics';
+    const UPDATE_PATH = '/api/dsh-sync/update';
+    const UPDATE_APPLY_PATH = '/api/dsh-sync/update/apply';
+    const shortSha = (value) => (value === null || value === undefined || value === '' ? '?' : String(value).slice(0, 7));
 
     const en = { title: 'Session sync' };
     const ru = { title: 'Синхронизация сессий' };
@@ -175,8 +178,42 @@ window.__ModuleLoader__.load({
         const view = props?.view;
         const state = useSnapshot();
         const data = state.data;
+        const [update, setUpdate] = React.useState(null);
+        const [updateNote, setUpdateNote] = React.useState('');
         const [draft, setDraft] = React.useState({ remote: '', projectPath: '', projectId: '', attachments: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
+
+        React.useEffect(() => {
+          let alive = true;
+          fetch(UPDATE_PATH, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+            .then((response) => response.json())
+            .then((payload) => { if (alive && payload?.ok === true) setUpdate(payload); })
+            .catch(() => {});
+          return () => { alive = false; };
+        }, []);
+
+        const applyUpdate = async () => {
+          setUpdateNote('Обновляем…');
+          try {
+            const response = await fetch(UPDATE_APPLY_PATH, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'content-type': 'application/json' },
+              body: '{}',
+            });
+            const payload = await response.json();
+            setUpdateNote(payload?.ok === true
+              ? 'Обновление запущено. Перезапустите DSH.'
+              : (payload?.message ?? 'не удалось запустить обновление'));
+          } catch (error) {
+            setUpdateNote(String(error?.message ?? error));
+          }
+        };
 
         React.useEffect(() => {
           void refresh();
@@ -208,6 +245,9 @@ window.__ModuleLoader__.load({
             ),
             status ? h('span', { style: S.meta }, `${status.local}/${status.mirror}`) : null,
             last ? h('span', { style: S.meta }, new Date(last.at).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit' })) : null,
+            update?.status === 'behind'
+              ? h('span', { style: { ...S.badge, background: 'rgba(200,140,0,0.18)' } }, `обновление: ${shortSha(update.installed)} → ${shortSha(update.latest)}`)
+              : null,
           );
         }
 
@@ -262,6 +302,29 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { style: S.page },
+
+          h(
+            'div',
+            { style: S.section },
+            h('span', { style: S.title }, 'Обновление плагина'),
+            h(
+              'span',
+              { style: S.hint },
+              update === null
+                ? 'Проверяем версию…'
+                : update.status === 'behind'
+                  ? `Доступно обновление: ${shortSha(update.installed)} → ${shortSha(update.latest)}`
+                  : update.status === 'current'
+                    ? `Актуально (${shortSha(update.installed)})`
+                    : update.detail !== undefined && update.detail !== ''
+                      ? `Проверка не удалась: ${update.detail}`
+                      : 'Состояние неизвестно',
+            ),
+            update?.status === 'behind'
+              ? h('button', { style: S.button, onClick: () => void applyUpdate() }, 'Обновить')
+              : null,
+            updateNote !== '' ? h('span', { style: S.note }, updateNote) : null,
+          ),
 
           h(
             'div',

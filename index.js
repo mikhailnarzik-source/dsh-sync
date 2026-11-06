@@ -21,6 +21,7 @@ import { collectDiagnostics } from './lib/diagnostics.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
+import { applyUpdate, checkForUpdate, describeUpdate, updateState } from './lib/update.js'
 
 export const name = 'dsh-sync'
 // sessionPersistence даёт список сессий с путями к логам: обходим каталог
@@ -32,6 +33,8 @@ const CONFIG_PATH = '/api/dsh-sync/config'
 const RUN_PATH = '/api/dsh-sync/run'
 const CREATE_REPO_PATH = '/api/dsh-sync/create-repo'
 const DIAG_PATH = '/api/dsh-sync/diagnostics'
+const UPDATE_PATH = '/api/dsh-sync/update'
+const UPDATE_APPLY_PATH = '/api/dsh-sync/update/apply'
 
 /** Инструменты возвращают текст: DSH требует явное описание вывода. */
 const TEXT_OUTPUT = {
@@ -976,6 +979,35 @@ export function apply(ctx) {
   }
 
   route('state', STATE_PATH, async () => json(await readState(ctx)))
+
+  // Самопроверка версии: сравнивает закреплённый коммит с `main` в репозитории
+  // и по явному нажатию просит менеджер плагинов переустановить пакет.
+  const resolveUpdateToken = async () => {
+    try {
+      const credentials = ctx.get('credentials')
+      const hit = await credentials?.resolve('GITHUB_TOKEN')
+      return hit?.value
+    } catch {
+      return undefined
+    }
+  }
+
+  void checkForUpdate(resolveUpdateToken)
+
+  route('update', UPDATE_PATH, async () => json({ ok: true, ...updateState(), description: describeUpdate() }))
+
+  route('update-apply', UPDATE_APPLY_PATH, async () => {
+    const fresh = await checkForUpdate(resolveUpdateToken)
+    const result = applyUpdate(ctx)
+    return json({
+      ok: result.started,
+      code: result.started ? 'scheduled' : 'no-op',
+      message: result.reason,
+      status: fresh.status,
+      installed: fresh.installed,
+      latest: fresh.latest,
+    })
+  })
 
   route('config', CONFIG_PATH, async (request) => {
     try {
