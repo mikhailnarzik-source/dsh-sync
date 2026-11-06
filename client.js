@@ -105,6 +105,12 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const t = ctx.locale.bind(NS);
       ctx.effect(() => ctx.locale.register(NS, { en, ru }), 'dsh-sync: card dictionaries');
+      ctx.effect(() => {
+        const style = document.createElement('style');
+        style.textContent = '@keyframes dsh-sync-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}';
+        document.head.appendChild(style);
+        return () => style.remove();
+      }, 'dsh-sync: keyframes');
 
       const listeners = new Set();
       let snapshot = { loading: true, data: null, error: '', busy: '', notice: '' };
@@ -380,6 +386,80 @@ window.__ModuleLoader__.load({
         );
       }
 
+      function HeaderSyncButton() {
+        const [phase, setPhase] = React.useState('idle');
+        const [hint, setHint] = React.useState('Синхронизировать сессии');
+        const [hover, setHover] = React.useState(false);
+
+        const run = async () => {
+          if (phase === 'busy') return;
+          setPhase('busy');
+          setHint('Синхронизация…');
+          try {
+            const result = await post(RUN_PATH, { action: 'sync' });
+            if (result?.ok === true) {
+              setPhase('ok');
+              setHint(result.message || 'Синхронизировано');
+            } else {
+              setPhase('error');
+              setHint(result?.message ?? 'Синхронизация не удалась');
+            }
+          } catch (error) {
+            setPhase('error');
+            setHint(explain(error));
+          }
+          setTimeout(() => {
+            setPhase('idle');
+            setHint('Синхронизировать сессии');
+          }, 5000);
+        };
+
+        const tint = phase === 'error' ? '#d1242f' : phase === 'ok' ? '#2f9e44' : 'currentColor';
+        const spin = phase === 'busy';
+
+        return h(
+          'button',
+          {
+            type: 'button',
+            onClick: run,
+            title: hint,
+            'aria-label': hint,
+            onMouseEnter: () => setHover(true),
+            onMouseLeave: () => setHover(false),
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 28,
+              height: 28,
+              padding: 0,
+              border: 'none',
+              borderRadius: 8,
+              background: hover ? 'rgba(128,128,128,0.16)' : 'transparent',
+              color: tint,
+              cursor: phase === 'busy' ? 'progress' : 'pointer',
+              transition: 'background 120ms ease, color 120ms ease',
+            },
+          },
+          h(
+            'svg',
+            {
+              width: 16,
+              height: 16,
+              viewBox: '0 0 24 24',
+              fill: 'none',
+              stroke: 'currentColor',
+              strokeWidth: 2,
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+              style: spin ? { animation: 'dsh-sync-spin 900ms linear infinite' } : undefined,
+            },
+            h('path', { d: 'M21 12a9 9 0 0 1-9 9 9 9 0 0 1-9-9 9 9 0 0 1 9-9' }),
+            h('path', { d: 'M21 3v6h-6' }),
+          ),
+        );
+      }
+
       ctx.slots.inject('plugins.item', () => ctx.slots.register({
         name: 'plugins.item',
         id: 'dsh-sync',
@@ -387,6 +467,13 @@ window.__ModuleLoader__.load({
         label: () => t('title'),
         locale: NS,
       }, SyncCard));
+
+      ctx.effect(() => ctx.slots.register({
+        name: 'conversation.session.header.actions',
+        id: 'dsh-sync',
+        order: 40,
+        locale: NS,
+      }, HeaderSyncButton), 'dsh-sync: header sync button');
     }
 
     exports.apply = apply;

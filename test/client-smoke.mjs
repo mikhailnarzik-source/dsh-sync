@@ -20,6 +20,7 @@ assert.equal(typeof loaded.factory, 'function')
 
 // Мини-React: ровно то, что использует карточка.
 let stateSlots = []
+globalThis.document = { createElement: () => ({ textContent: '', remove() {} }), head: { appendChild() {} } }
 const React = {
   createElement: (type, props, ...children) => ({ type, props, children }),
   useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
@@ -55,8 +56,12 @@ const ctx = {
 exported.apply(ctx)
 
 assert.equal(boundNs, 'dshSync')
-assert.equal(registrations.length, 1)
-const { options, component } = registrations[0]
+assert.equal(registrations.length, 2)
+const cardRegistration = registrations.find(entry => entry.options.name === 'plugins.item')
+const headerRegistration = registrations.find(entry => entry.options.name === 'conversation.session.header.actions')
+assert.ok(cardRegistration, 'карточка плагина регистрируется')
+assert.ok(headerRegistration, 'кнопка в шапке сессии регистрируется')
+const { options, component } = cardRegistration
 assert.equal(options.id, 'dsh-sync')
 assert.equal(options.name, 'plugins.item')
 assert.equal(typeof component, 'function')
@@ -70,6 +75,9 @@ const page = component({ view: 'page' })
 assert.equal(page.type, 'div')
 assert.ok(page.children.length >= 3, 'страница карточки содержит проверку, настройки и синхронизацию')
 
+const headerButton = headerRegistration.component({})
+assert.equal(headerButton.type, 'button')
+assert.equal(headerButton.props['aria-label'], 'Синхронизировать сессии')
 console.log('client smoke: OK')
 console.log('  слот:', options.name, '| id:', options.id, '| label:', options.label())
 console.log('  элементов на странице:', page.children.length)
