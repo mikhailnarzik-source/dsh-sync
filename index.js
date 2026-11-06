@@ -7,7 +7,7 @@
  * сохраняет параметры в `~/.dsh/dsh-sync.json` и запускает `pull`/`push`.
  * Токены нигде не хранятся: git использует штатный credential helper.
  */import { existsSync } from 'node:fs'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'

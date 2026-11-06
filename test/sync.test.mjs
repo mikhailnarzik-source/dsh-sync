@@ -183,6 +183,19 @@ test('лог без сжатия (JSONL) тоже переносится', () =>
   assert.deepEqual(splitLog(back).tail, parsed.tail)
 })
 
+test('push без адреса репозитория говорит об этом прямо', async () => {
+  const env = await makeEnvironment()
+  try {
+    const config = { ...env.configA, backend: 'git', repoDir: join(env.root, 'repo-git'), remote: '' }
+    await assert.rejects(
+      () => push({ home: env.homeA, config }),
+      /не задан адрес репозитория/,
+    )
+  } finally {
+    await rm(env.root, { recursive: true, force: true })
+  }
+})
+
 test('push удаляет из зеркала сессии, удалённые локально', async () => {
   const env = await makeEnvironment()
   try {

@@ -76,6 +76,16 @@ const page = component({ view: 'page' })
 assert.equal(page.type, 'div')
 assert.ok(page.children.length >= 3, 'страница карточки содержит проверку, настройки и синхронизацию')
 
+// Страница пункта в левой панели и иконка рендерятся без ошибок.
+const panelRegistration = registrations.find(entry => entry.options.name === 'main')
+const panel = panelRegistration.component({})
+assert.equal(panel.type, 'div')
+assert.ok(panel.children.length >= 3, 'страница синхронизации содержит статус и кнопку')
+
+const sidebarRegistration = registrations.find(entry => entry.options.name === 'sidebar.panellist')
+const icon = sidebarRegistration.component({ size: 16 })
+assert.equal(icon.type, 'svg')
+
 console.log('client smoke: OK')
 console.log('  слот:', options.name, '| id:', options.id, '| label:', options.label())
 console.log('  элементов на странице:', page.children.length)

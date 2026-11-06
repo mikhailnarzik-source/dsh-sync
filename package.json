@@ -1,6 +1,6 @@
 {
     "name":  "dsh-sync",
-    "version":  "0.3.1",
+    "version":  "0.3.2",
     "description":  "Синхронизация сессий DeepSeek Harness между устройствами: git-зеркало или папка облака, карточка настроек и кнопка синхронизации в DSH",
     "type":  "module",
     "license":  "MIT",
