@@ -539,6 +539,102 @@ window.__ModuleLoader__.load({
         );
       }
 
+      /**
+       * Экран пункта «Синхронизация» в левой панели: это действие, а не
+       * настройки. При открытии запускает синхронизацию (если давно не было
+       * запуска) и показывает результат крупной лампочкой.
+       */
+      function SyncPanel() {
+        const [phase, setPhase] = React.useState('idle');
+        const [text, setText] = React.useState('');
+        const [detail, setDetail] = React.useState('');
+
+        const run = async () => {
+          setPhase('busy');
+          setText('Синхронизация сессий…');
+          try {
+            const result = await post(RUN_PATH, { action: 'sync' });
+            if (result?.ok === true) {
+              setPhase('ok');
+              setText('Сессии синхронизированы');
+              setDetail(result.message ?? '');
+            } else {
+              setPhase('error');
+              setText('Не удалось синхронизировать');
+              setDetail(result?.message ?? '');
+            }
+          } catch (error) {
+            setPhase('error');
+            setText('Не удалось синхронизировать');
+            setDetail(explain(error));
+          }
+        };
+
+        React.useEffect(() => {
+          (async () => {
+            try {
+              const state = await post(STATE_PATH, {});
+              const lastAt = state?.lastRun?.at ? Date.parse(state.lastRun.at) : 0;
+              const fresh = Number.isFinite(lastAt) && Date.now() - lastAt < 60_000;
+              if (!fresh) {
+                await run();
+                return;
+              }
+              setPhase(state.lastRun.ok === true ? 'ok' : 'error');
+              setText(state.lastRun.ok === true ? 'Сессии синхронизированы' : 'Последняя синхронизация не удалась');
+              setDetail(state.lastRun.message ?? '');
+            } catch {
+              await run();
+            }
+          })();
+        }, []);
+
+        const color = phase === 'ok' ? '#2f9e44' : phase === 'error' ? '#d1242f' : 'rgba(128,128,128,0.45)';
+
+        return h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 18, padding: '32px 28px', maxWidth: 560 } },
+          h('span', { style: { fontSize: 19, fontWeight: 600 } }, 'Синхронизация сессий'),
+          h(
+            'div',
+            { style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 14 } },
+            h('span', { style: { width: 12, height: 12, borderRadius: 6, background: color, flex: '0 0 auto' } }),
+            h('span', null, text || 'Готово к синхронизации'),
+          ),
+          detail ? h('span', { style: { fontSize: 12.5, opacity: 0.7, lineHeight: 1.5 } }, detail) : null,
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: () => void run(),
+              disabled: phase === 'busy',
+              style: {
+                alignSelf: 'flex-start',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                height: 34,
+                padding: '0 16px',
+                borderRadius: 9,
+                border: '1px solid rgba(128,128,128,0.32)',
+                background: 'rgba(128,128,128,0.12)',
+                color: 'inherit',
+                font: 'inherit',
+                fontSize: 13.5,
+                fontWeight: 600,
+                cursor: phase === 'busy' ? 'progress' : 'pointer',
+              },
+            },
+            phase === 'busy' ? 'Синхронизация…' : 'Синхронизировать снова',
+          ),
+          h(
+            'span',
+            { style: { fontSize: 12, opacity: 0.6, lineHeight: 1.6 } },
+            'Настройки — в разделе «Плагины» → «Синхронизация сессий». Автосинхронизация работает в фоне: приём при старте и раз в 15 минут, отправка при изменениях.',
+          ),
+        );
+      }
+
       /** Иконка пункта в левой панели: две стрелки по кругу. */
       function SyncSidebarIcon(props) {
         const size = Number(props && props.size) || 16;
@@ -589,7 +685,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: 'dsh-sync',
-        }, SyncCard));
+        }, SyncPanel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
           id: 'dsh-sync',
