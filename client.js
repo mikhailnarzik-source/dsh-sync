@@ -539,6 +539,28 @@ window.__ModuleLoader__.load({
         );
       }
 
+      /** Иконка пункта в левой панели: две стрелки по кругу. */
+      function SyncSidebarIcon(props) {
+        const size = Number(props && props.size) || 16;
+        return h(
+          'svg',
+          { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: false },
+          h('path', {
+            d: 'M12.6 8A4.6 4.6 0 1 1 11.2 4.7',
+            stroke: 'currentColor',
+            strokeWidth: 1.2,
+            strokeLinecap: 'round',
+          }),
+          h('path', {
+            d: 'M12.7 2.5v2.7h-2.7',
+            stroke: 'currentColor',
+            strokeWidth: 1.2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+          }),
+        );
+      }
+
       ctx.slots.inject('plugins.item', () => ctx.slots.register({
         name: 'plugins.item',
         id: 'dsh-sync',
@@ -559,6 +581,24 @@ window.__ModuleLoader__.load({
         }, SyncCard));
       } catch (error) {
         console.error('[dsh-sync] секция настроек на странице плагина недоступна:', error);
+      }
+
+      // Пункт в левой панели (рядом с «Расходами» и «Плагинами») и его страница:
+      // пара slots.main + sidebar.panellist — тот же приём, что у других плагинов.
+      try {
+        ctx.slots.inject('main', () => ctx.slots.register({
+          name: 'main',
+          key: 'dsh-sync',
+        }, SyncCard));
+        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist',
+          id: 'dsh-sync',
+          order: 6,
+          label: () => 'Синхронизация',
+          locale: NS,
+        }, SyncSidebarIcon));
+      } catch (error) {
+        console.error('[dsh-sync] пункт в левой панели недоступен:', error);
       }
 
       // Кнопка в шапке — необязательное украшение: если слот не отдаётся,

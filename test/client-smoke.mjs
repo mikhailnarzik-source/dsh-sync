@@ -56,8 +56,10 @@ const ctx = {
 exported.apply(ctx)
 
 assert.equal(boundNs, 'dshSync')
-assert.equal(registrations.length, 3)
+assert.equal(registrations.length, 5)
 assert.ok(registrations.some(entry => entry.options.name === 'plugins.detail.section'), 'секция настроек на странице плагина')
+assert.ok(registrations.some(entry => entry.options.name === 'main' && entry.options.key === 'dsh-sync'), 'страница плагина в main')
+assert.ok(registrations.some(entry => entry.options.name === 'sidebar.panellist'), 'пункт в левой панели')
 const cardRegistration = registrations.find(entry => entry.options.name === 'plugins.item')
 const headerRegistration = registrations.find(entry => entry.options.name === 'conversation.session.header.actions')
 assert.ok(cardRegistration, 'карточка плагина регистрируется')
