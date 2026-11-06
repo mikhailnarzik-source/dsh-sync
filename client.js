@@ -514,6 +514,20 @@ window.__ModuleLoader__.load({
         locale: NS,
       }, SyncCard));
 
+      // Настройки нужны и на странице плагина: там менеджер показывает README,
+      // и без этой секции поля остаются только в строке списка.
+      try {
+        ctx.slots.inject('plugins.detail.section', () => ctx.slots.register({
+          name: 'plugins.detail.section',
+          id: 'dsh-sync-settings',
+          order: 60,
+          label: () => t('title'),
+          locale: NS,
+        }, SyncCard));
+      } catch (error) {
+        console.error('[dsh-sync] секция настроек на странице плагина недоступна:', error);
+      }
+
       // Кнопка в шапке — необязательное украшение: если слот не отдаётся,
       // плагин должен продолжать работать, а не ломать загрузку приложения.
       try {

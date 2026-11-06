@@ -56,7 +56,8 @@ const ctx = {
 exported.apply(ctx)
 
 assert.equal(boundNs, 'dshSync')
-assert.equal(registrations.length, 2)
+assert.equal(registrations.length, 3)
+assert.ok(registrations.some(entry => entry.options.name === 'plugins.detail.section'), 'секция настроек на странице плагина')
 const cardRegistration = registrations.find(entry => entry.options.name === 'plugins.item')
 const headerRegistration = registrations.find(entry => entry.options.name === 'conversation.session.header.actions')
 assert.ok(cardRegistration, 'карточка плагина регистрируется')
