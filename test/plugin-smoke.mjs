@@ -166,6 +166,11 @@ const states = await call('/api/dsh-sync/sessions', {})
 assert.equal(states.body.ok, true)
 assert.equal(typeof states.body.states, 'object')
 
+// 13. проверка доступа к Диску без токена отвечает понятной ошибкой
+const yandexProbe = await call('/api/dsh-sync/yandex-check', { backend: 'webdav' })
+assert.equal(yandexProbe.body.ok, false)
+assert.match(String(yandexProbe.body.message), /логин|пароль/)
+
 console.log('plugin smoke: OK')
 console.log('  маршруты:', [...routes.keys()].join(', '))
 console.log('  инструменты:', [...tools.keys()].join(', '))

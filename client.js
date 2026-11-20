@@ -180,6 +180,7 @@ window.__ModuleLoader__.load({
         const data = state.data;
         const [update, setUpdate] = React.useState(null);
         const [updateNote, setUpdateNote] = React.useState('');
+        const [probe, setProbe] = React.useState(null);
         const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', yandexToken: '', yandexPath: 'dsh-sync', webdavLogin: '', webdavPassword: '', webdavPath: 'dsh-sync', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
 
@@ -282,6 +283,7 @@ window.__ModuleLoader__.load({
         };
 
         const checkYandex = async () => {
+          setProbe({ ok: false, text: 'Проверяю доступ…' });
           publish({ busy: 'yandex', notice: '', error: '' });
           try {
             const result = await post('/api/dsh-sync/yandex-check', {
@@ -292,10 +294,17 @@ window.__ModuleLoader__.load({
               webdavPassword: draft.webdavPassword,
               webdavPath: draft.webdavPath,
             });
-            if (result?.ok === true) publish({ busy: '', notice: result.message ?? 'Доступ к Диску подтверждён' });
-            else publish({ busy: '', error: result?.message ?? 'Не удалось войти в Яндекс.Диск' });
+            if (result?.ok === true) {
+              setProbe({ ok: true, text: result.message ?? 'Доступ к Диску подтверждён' });
+              publish({ busy: '', notice: '', error: '' });
+            } else {
+              setProbe({ ok: false, text: result?.message ?? 'Не удалось войти в Яндекс.Диск' });
+              publish({ busy: '', notice: '', error: '' });
+            }
           } catch (error) {
-            publish({ busy: '', error: explain(error) });
+            const text = error instanceof Error ? error.message : String(error);
+            setProbe({ ok: false, text: text.includes('404') ? 'Маршрут проверки недоступен — перезапустите DSH' : text });
+            publish({ busy: '', notice: '', error: '' });
           }
         };
 
@@ -457,6 +466,13 @@ window.__ModuleLoader__.load({
                     { style: S.button, disabled: busy, onClick: () => void checkYandex() },
                     state.busy === 'yandex' ? 'Проверка…' : 'Проверить доступ',
                   ),
+                  probe
+                    ? h(
+                        'span',
+                        { style: { fontSize: 12, color: probe.ok ? '#2f9e44' : '#d1242f' } },
+                        probe.text,
+                      )
+                    : null,
                 )
               : draft.backend === 'yandex'
               ? h(
@@ -487,6 +503,13 @@ window.__ModuleLoader__.load({
                     { style: S.button, disabled: busy, onClick: () => void checkYandex() },
                     state.busy === 'yandex' ? 'Проверка…' : 'Проверить доступ',
                   ),
+                  probe
+                    ? h(
+                        'span',
+                        { style: { fontSize: 12, color: probe.ok ? '#2f9e44' : '#d1242f' } },
+                        probe.text,
+                      )
+                    : null,
                 )
               : h(
                   'label',
