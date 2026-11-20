@@ -180,7 +180,7 @@ window.__ModuleLoader__.load({
         const data = state.data;
         const [update, setUpdate] = React.useState(null);
         const [updateNote, setUpdateNote] = React.useState('');
-        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', projectPath: '', projectId: '', attachments: false, useExternal: true });
+        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
 
         React.useEffect(() => {
@@ -228,6 +228,7 @@ window.__ModuleLoader__.load({
             projectPath: data.config.projectPath ?? '',
             projectId: data.config.projectId ?? '',
             attachments: data.config.attachments === true,
+            autoUpdate: data.config.autoUpdate === true,
             useExternal: data.config.useExternal !== false,
           });
         }, [data?.config?.remote, data?.config?.projectPath, data?.config?.projectId, data?.config?.attachments, data?.config?.useExternal, touched]);
@@ -422,6 +423,16 @@ window.__ModuleLoader__.load({
                 onChange: (event) => set({ attachments: event.target.checked }),
               }),
               h('span', null, 'Синхронизировать вложения (картинки и файлы из чата)'),
+            ),
+            h(
+              'label',
+              { style: S.checkboxRow },
+              h('input', {
+                type: 'checkbox',
+                checked: draft.autoUpdate,
+                onChange: (event) => set({ autoUpdate: event.target.checked }),
+              }),
+              h('span', null, 'Обновлять плагин автоматически, когда выходит новая версия'),
             ),
             h(
               'div',
@@ -659,24 +670,119 @@ window.__ModuleLoader__.load({
       }
 
       /** Иконка пункта в левой панели: две стрелки по кругу. */
+      // Всплывающие карточки: боковая панель отрисована всегда, поэтому
+      // уведомления видны с любой страницы и не требуют отдельного слота.
+      const NOTIFICATIONS_PATH = '/api/dsh-sync/notifications';
+      const TOAST_LIFETIME_MS = 12_000;
+      const TOAST_POLL_MS = 20_000;
+
+      function SyncToasts() {
+        const [items, setItems] = React.useState([]);
+
+        React.useEffect(() => {
+          let cursor = 0;
+          let stopped = false;
+          let timer;
+
+          const schedule = () => {
+            if (stopped) return;
+            timer = setTimeout(() => void poll(), TOAST_POLL_MS);
+          };
+
+          const poll = async () => {
+            try {
+              const result = await post(NOTIFICATIONS_PATH, { since: cursor });
+              if (result?.ok === true) {
+                cursor = Number(result.cursor) || cursor;
+                if (Array.isArray(result.items) && result.items.length > 0) {
+                  setItems((current) => [...current, ...result.items].slice(-3));
+                }
+              }
+            } catch {
+              // без уведомлений остальное работает
+            }
+            schedule();
+          };
+
+          void poll();
+          return () => {
+            stopped = true;
+            clearTimeout(timer);
+          };
+        }, []);
+
+        React.useEffect(() => {
+          if (items.length === 0) return undefined;
+          const timer = setTimeout(() => {
+            setItems((current) => current.slice(1));
+          }, TOAST_LIFETIME_MS);
+          return () => clearTimeout(timer);
+        }, [items]);
+
+        if (items.length === 0) return null;
+
+        const color = (kind) =>
+          kind === 'error' ? '#d1242f' : kind === 'update' ? '#1f6feb' : '#2f9e44';
+
+        return h(
+          'div',
+          {
+            style: {
+              position: 'fixed',
+              right: 16,
+              bottom: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              zIndex: 60,
+              maxWidth: 340,
+            },
+          },
+          ...items.map((item) =>
+            h(
+              'div',
+              {
+                key: item.id,
+                style: {
+                  background: 'var(--dsh-surface-strong, #1f2430)',
+                  color: '#fff',
+                  borderLeft: `3px solid ${color(item.kind)}`,
+                  borderRadius: 6,
+                  padding: '8px 10px',
+                  fontSize: 12,
+                  lineHeight: 1.35,
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+                },
+              },
+              item.text,
+            ),
+          ),
+        );
+      }
+
       function SyncSidebarIcon(props) {
         const size = Number(props && props.size) || 16;
         return h(
-          'svg',
-          { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: false },
-          h('path', {
-            d: 'M12.6 8A4.6 4.6 0 1 1 11.2 4.7',
-            stroke: 'currentColor',
-            strokeWidth: 1.2,
-            strokeLinecap: 'round',
-          }),
-          h('path', {
-            d: 'M12.7 2.5v2.7h-2.7',
-            stroke: 'currentColor',
-            strokeWidth: 1.2,
-            strokeLinecap: 'round',
-            strokeLinejoin: 'round',
-          }),
+          'span',
+          { style: { display: 'inline-flex', alignItems: 'center', position: 'relative' } },
+          h(
+            'svg',
+            { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: false },
+            h('path', {
+              d: 'M12.6 8A4.6 4.6 0 1 1 11.2 4.7',
+              stroke: 'currentColor',
+              strokeWidth: 1.2,
+              strokeLinecap: 'round',
+            }),
+            h('path', {
+              d: 'M12.7 2.5v2.7h-2.7',
+              stroke: 'currentColor',
+              strokeWidth: 1.2,
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+            }),
+          ),
+          h(SyncToasts, null),
         );
       }
 

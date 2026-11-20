@@ -36,6 +36,39 @@ const RUN_PATH = '/api/dsh-sync/run'
 const CREATE_REPO_PATH = '/api/dsh-sync/create-repo'
 const DIAG_PATH = '/api/dsh-sync/diagnostics'
 const SESSIONS_PATH = '/api/dsh-sync/sessions'
+const NOTIFICATIONS_PATH = '/api/dsh-sync/notifications'
+
+// --- уведомления -----------------------------------------------------------
+// Кольцевой буфер: клиент забирает всё, что появилось после его курсора, и
+// показывает всплывающие карточки. Так ошибки и обновления видно без захода
+// в карточку плагина.
+const NOTICE_LIMIT = 50
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60_000
+const notices = []
+let noticeSeq = 0
+let announcedVersion = null
+const noticeDedupe = new Map()
+
+/** Токен GitHub из хранилища DSH — для проверки обновлений. */
+async function resolveGitHubToken(ctx) {
+  try {
+    const credentials = ctx?.get?.('credentials')
+    const hit = await credentials?.resolve?.('GITHUB_TOKEN')
+    return typeof hit?.value === 'string' && hit.value.length > 0 ? hit.value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function pushNotice(kind, text) {
+  const key = `${kind}:${text}`
+  const last = noticeDedupe.get(key) ?? 0
+  if (Date.now() - last < 10 * 60_000) return
+  noticeDedupe.set(key, Date.now())
+  noticeSeq += 1
+  notices.push({ id: noticeSeq, at: Date.now(), kind, text })
+  if (notices.length > NOTICE_LIMIT) notices.shift()
+}
 const UPDATE_PATH = '/api/dsh-sync/update'
 const UPDATE_APPLY_PATH = '/api/dsh-sync/update/apply'
 
@@ -461,6 +494,7 @@ async function saveSettings(ctx, payload) {
     config.remote = remote
   }
   config.attachments = payload.attachments === true
+  config.autoUpdate = payload.autoUpdate === true
   if (typeof payload.useExternal === 'boolean') config.useExternal = payload.useExternal
   config.projects = { [projectId]: { path: projectPath, title: projectId } }
   await saveConfig(home, config)
@@ -537,11 +571,17 @@ async function runViaChild(action) {
       durationMs: Date.now() - started,
     }
     await writeLastRun(record)
+    pushNotice('error', `Синхронизация не удалась: ${record.message}`)
     return record
   }
 
   const record = { ...parsed, at: new Date().toISOString(), nodePath: node.path, durationMs: parsed.durationMs ?? Date.now() - started }
   await writeLastRun(record)
+  if (record.ok !== true) {
+    pushNotice('error', `Синхронизация не удалась: ${record.message}`)
+  } else if ((record.pull?.imported ?? 0) > 0) {
+    pushNotice('sync', `Принято новых сессий: ${record.pull.imported}. Откройте DSH заново, чтобы увидеть их в списке.`)
+  }
   return record
 }
 
@@ -627,6 +667,7 @@ async function runSync(ctx, action) {
     const message = error instanceof Error ? error.message : String(error)
     const record = { ok: false, at: new Date().toISOString(), action, mode: 'builtin', message, durationMs: Date.now() - started }
     await writeLastRun(record)
+    pushNotice('error', `Синхронизация не удалась: ${message}`)
     return record
   }
 
@@ -1182,6 +1223,48 @@ function startAutomation(ctx) {
   }, 'dsh-sync: automation')
 }
 
+/** Периодическая проверка обновлений: первая через полминуты, дальше раз в 6 часов. */
+function startUpdateWatch(ctx) {
+  ctx.effect(() => {
+    let stopped = false
+    let timer
+    const tick = async () => {
+      if (stopped) return
+      try {
+        const fresh = await checkForUpdate(() => resolveGitHubToken(ctx))
+        if (fresh.status === 'behind' && fresh.latest !== announcedVersion) {
+          announcedVersion = fresh.latest
+          pushNotice('update', `Доступна новая версия dsh-sync (${String(fresh.latest).slice(0, 7)}). Обновить можно в карточке плагина.`)
+          const config = await loadConfig(dshHome())
+          if (config.autoUpdate === true) {
+            pushNotice('update', 'Автообновление включено: плагин переустановится после паузы.')
+            setTimeout(() => {
+              try {
+                applyUpdate(ctx)
+              } catch {
+                // менеджер плагинов может быть недоступен — не критично
+              }
+            }, 120_000).unref?.()
+          }
+        }
+      } catch (error) {
+        pushNotice('error', `Проверка обновлений не удалась: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      if (!stopped) {
+        timer = setTimeout(() => void tick(), UPDATE_CHECK_INTERVAL_MS)
+        timer.unref?.()
+      }
+    }
+    const first = setTimeout(() => void tick(), 30_000)
+    first.unref?.()
+    return () => {
+      stopped = true
+      clearTimeout(first)
+      clearTimeout(timer)
+    }
+  }, 'dsh-sync: update watch')
+}
+
 export function apply(ctx) {
   const failures = []
 
@@ -1274,6 +1357,12 @@ export function apply(ctx) {
     }
   })
 
+  route('notifications', NOTIFICATIONS_PATH, async (request) => {
+    const payload = await body(request)
+    const since = Number(payload?.since ?? 0)
+    return json({ ok: true, items: notices.filter(item => item.id > since), cursor: noticeSeq })
+  })
+
   const tool = (definition) => {
     try {
       ctx.tools.register(definition)
@@ -1337,6 +1426,7 @@ export function apply(ctx) {
   })
 
   startAutomation(ctx)
+  startUpdateWatch(ctx)
   void writeStatus({ applied: true, pid: process.pid, failures })
 }
 

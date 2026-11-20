@@ -85,7 +85,8 @@ assert.ok(panel.children.length >= 3, 'страница синхронизаци
 
 const sidebarRegistration = registrations.find(entry => entry.options.name === 'sidebar.panellist')
 const icon = sidebarRegistration.component({ size: 16 })
-assert.equal(icon.type, 'svg')
+assert.equal(icon.type, 'span', 'иконка дополнена контейнером для уведомлений')
+assert.ok(icon.children.some((child) => child && child.type === 'svg'), 'внутри остаётся иконка')
 
 // Индикатор без данных ничего не рисует (точка появляется после ответа host).
 const dotRegistration = registrations.find(entry => entry.options.name === 'sidebar.session.row.leading')
