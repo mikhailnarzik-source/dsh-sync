@@ -21,6 +21,7 @@ import { encodeSegment, projectKey, samePath } from './lib/format.mjs'
 import { collectDiagnostics } from './lib/diagnostics.mjs'
 import { readHistory, recordRun } from './lib/history.mjs'
 import { readLedger, sessionState } from './lib/ledger.mjs'
+import { probeYandex } from './lib/yandex.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
@@ -38,6 +39,7 @@ const CREATE_REPO_PATH = '/api/dsh-sync/create-repo'
 const DIAG_PATH = '/api/dsh-sync/diagnostics'
 const SESSIONS_PATH = '/api/dsh-sync/sessions'
 const NOTIFICATIONS_PATH = '/api/dsh-sync/notifications'
+const YANDEX_CHECK_PATH = '/api/dsh-sync/yandex-check'
 
 // --- уведомления -----------------------------------------------------------
 // Кольцевой буфер: клиент забирает всё, что появилось после его курсора, и
@@ -276,6 +278,18 @@ async function checkEnvironment(config) {
   })
 
   // Для папки облака проверяем саму папку: git и сеть не нужны вовсе.
+  if (config?.backend === 'yandex') {
+    const token = (config.yandexToken ?? process.env.YANDEX_DISK_TOKEN ?? '').trim()
+    checks.push({
+      id: 'remote',
+      title: 'Яндекс.Диск (API)',
+      ok: token.length > 0,
+      detail: token.length > 0 ? `папка /${config.yandexPath ?? 'dsh-sync'}` : 'токен не задан',
+      hint: 'Вставьте OAuth-токен с доступом к Диску — инструкция в README плагина.',
+    })
+    return checks
+  }
+
   if (config?.backend === 'folder') {
     const folder = config.repoDir ?? ''
     let ok = false
@@ -523,9 +537,17 @@ async function saveSettings(ctx, payload) {
   const projectPath = typeof payload.projectPath === 'string' ? payload.projectPath.trim() : ''
   const projectId = (projectIdRaw || 'default').toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 
-  config.backend = payload.backend === 'folder' ? 'folder' : 'git'
+  config.backend = payload.backend === 'folder' ? 'folder' : payload.backend === 'yandex' ? 'yandex' : 'git'
   if (config.backend === 'folder') {
     if (folder !== '') config.repoDir = folder
+  } else if (config.backend === 'yandex') {
+    // Для API-бэкенда локальный каталог — это кеш, а не git-зеркало.
+    const cacheDefault = join(home, 'dsh-sync', 'yandex-cache')
+    config.repoDir = folder !== '' && folder !== join(home, 'dsh-sync', 'repo') ? folder : cacheDefault
+    const token = typeof payload.yandexToken === 'string' ? payload.yandexToken.trim() : ''
+    if (token !== '') config.yandexToken = token
+    const yandexPath = typeof payload.yandexPath === 'string' ? payload.yandexPath.trim() : ''
+    if (yandexPath !== '') config.yandexPath = yandexPath
   } else if (remote !== '') {
     config.remote = remote
   }
@@ -1413,6 +1435,25 @@ export function apply(ctx) {
   route('sessions', SESSIONS_PATH, async () => {
     try {
       return json(await sessionStates(ctx))
+    } catch (error) {
+      return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
+    }
+  })
+
+  route('yandex-check', YANDEX_CHECK_PATH, async (request) => {
+    try {
+      const payload = await body(request)
+      const config = await loadConfig(dshHome())
+      const token = typeof payload.yandexToken === 'string' && payload.yandexToken.trim() !== ''
+        ? payload.yandexToken.trim()
+        : config.yandexToken
+      const result = await probeYandex({
+        backend: 'yandex',
+        repoDir: config.repoDir,
+        yandexToken: token,
+        yandexPath: typeof payload.yandexPath === 'string' && payload.yandexPath.trim() !== '' ? payload.yandexPath.trim() : config.yandexPath,
+      })
+      return json(result)
     } catch (error) {
       return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
     }

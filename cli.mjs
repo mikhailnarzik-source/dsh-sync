@@ -25,7 +25,7 @@ import { decodeFrame, frameSlices } from './lib/frames.mjs'
 import { readMeta, writeMeta } from './lib/mirror-meta.mjs'
 import { createRemote } from './lib/remote.mjs'
 
-const VALUE_FLAGS = new Set(['home', 'remote', 'repo', 'branch', 'path', 'title', 'project', 'backend', 'months'])
+const VALUE_FLAGS = new Set(['home', 'remote', 'repo', 'branch', 'path', 'title', 'project', 'backend', 'months', 'yandex-token', 'yandex-path'])
 
 function parseArgs(argv) {
   const opts = {}
@@ -57,9 +57,12 @@ async function cmdInit(opts) {
   if (opts.branch) config.branch = opts.branch
   if (opts.repo) config.repoDir = opts.repo
   if (opts.backend) {
-    if (!['git', 'folder'].includes(opts.backend)) throw new Error('backend: git или folder')
+    if (!['git', 'folder', 'yandex'].includes(opts.backend)) throw new Error('backend: git, folder или yandex')
     config.backend = opts.backend
   }
+  if (opts['yandex-token']) config.yandexToken = String(opts['yandex-token']).trim()
+  if (opts['yandex-path']) config.yandexPath = String(opts['yandex-path']).trim()
+  if (config.backend === 'yandex' && !config.repoDir) config.repoDir = join(dshHome, 'dsh-sync', 'yandex-cache')
   if (opts.attachments) config.attachments = true
   if (config.backend !== 'folder') {
     await ensureRepo({ repoDir: config.repoDir, branch: config.branch })

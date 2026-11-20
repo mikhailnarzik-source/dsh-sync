@@ -180,7 +180,7 @@ window.__ModuleLoader__.load({
         const data = state.data;
         const [update, setUpdate] = React.useState(null);
         const [updateNote, setUpdateNote] = React.useState('');
-        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
+        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', yandexToken: '', yandexPath: 'dsh-sync', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
 
         React.useEffect(() => {
@@ -229,6 +229,8 @@ window.__ModuleLoader__.load({
             projectId: data.config.projectId ?? '',
             attachments: data.config.attachments === true,
             autoUpdate: data.config.autoUpdate === true,
+            yandexToken: data.config.yandexToken ?? '',
+            yandexPath: data.config.yandexPath ?? 'dsh-sync',
             useExternal: data.config.useExternal !== false,
           });
         }, [data?.config?.remote, data?.config?.projectPath, data?.config?.projectId, data?.config?.attachments, data?.config?.useExternal, touched]);
@@ -271,6 +273,17 @@ window.__ModuleLoader__.load({
             } else {
               publish({ busy: '', error: result?.message ?? 'Не удалось создать репозиторий' });
             }
+          } catch (error) {
+            publish({ busy: '', error: explain(error) });
+          }
+        };
+
+        const checkYandex = async () => {
+          publish({ busy: 'yandex', notice: '', error: '' });
+          try {
+            const result = await post('/api/dsh-sync/yandex-check', { yandexToken: draft.yandexToken, yandexPath: draft.yandexPath });
+            if (result?.ok === true) publish({ busy: '', notice: result.message ?? 'Доступ к Диску подтверждён' });
+            else publish({ busy: '', error: result?.message ?? 'Не удалось войти в Яндекс.Диск' });
           } catch (error) {
             publish({ busy: '', error: explain(error) });
           }
@@ -366,7 +379,8 @@ window.__ModuleLoader__.load({
                   onChange: (event) => set({ backend: event.target.value }),
                 },
                 h('option', { value: 'git' }, 'Git-репозиторий (GitHub, GitLab)'),
-                h('option', { value: 'folder' }, 'Папка облачного диска (OneDrive, Яндекс.Диск)'),
+                h('option', { value: 'folder' }, 'Папка облачного диска (клиент Яндекс.Диска, OneDrive)'),
+                h('option', { value: 'yandex' }, 'Яндекс.Диск через API (без программы)'),
               ),
             ),
             draft.backend === 'folder'
@@ -395,6 +409,36 @@ window.__ModuleLoader__.load({
                         `Подставить ${data.suggestedFolder}`,
                       )
                     : null,
+                )
+              : draft.backend === 'yandex'
+              ? h(
+                  'div',
+                  { style: S.field },
+                  h('span', { style: S.label }, 'OAuth-токен Яндекс.Диска'),
+                  h('input', {
+                    style: S.input,
+                    type: 'password',
+                    value: draft.yandexToken,
+                    placeholder: 'y0_AgAAAA…',
+                    onChange: (event) => set({ yandexToken: event.target.value }),
+                  }),
+                  h('span', { style: S.label }, 'Папка на Диске'),
+                  h('input', {
+                    style: S.input,
+                    value: draft.yandexPath,
+                    placeholder: 'dsh-sync',
+                    onChange: (event) => set({ yandexPath: event.target.value }),
+                  }),
+                  h(
+                    'span',
+                    { style: S.hint },
+                    'Программа Яндекс.Диска не нужна: плагин сам загружает и скачивает файлы. Инструкция по токену — в README плагина.',
+                  ),
+                  h(
+                    'button',
+                    { style: S.button, disabled: busy, onClick: () => void checkYandex() },
+                    state.busy === 'yandex' ? 'Проверка…' : 'Проверить доступ',
+                  ),
                 )
               : h(
                   'label',
