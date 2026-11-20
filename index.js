@@ -1214,10 +1214,35 @@ function startAutomation(ctx) {
       void autoTick(ctx)
     }, 60_000)
     timer.unref?.()
+
+    // Быстрый сторож удалений: плагин удаления сессий убирает её из рабочего
+    // пространства, а список меняется сразу. Проверяем каждые 5 секунд, чтобы
+    // удаление уезжало в зеркало почти мгновенно, без ожидания минуты.
+    automation.workspaceCount = countWorkspaceSessions(ctx)
+    const watcher = setInterval(() => {
+      if (automation.running) return
+      const now = countWorkspaceSessions(ctx)
+      if (automation.workspaceCount !== undefined && now < automation.workspaceCount) {
+        automation.workspaceCount = now
+        if (!automation.workspacePushPending) {
+          automation.workspacePushPending = true
+          void runSync(ctx, 'push')
+            .catch(() => {})
+            .finally(() => {
+              automation.workspacePushPending = false
+            })
+        }
+      } else {
+        automation.workspaceCount = now
+      }
+    }, 5_000)
+    watcher.unref?.()
+
     automation.timer = timer
     return () => {
       clearTimeout(initial)
       clearInterval(timer)
+      clearInterval(watcher)
       automation.enabled = false
     }
   }, 'dsh-sync: automation')
