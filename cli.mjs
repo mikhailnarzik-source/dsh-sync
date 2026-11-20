@@ -20,6 +20,8 @@ import { pull, push } from './lib/sync.mjs'
 import { ensureRepo, git, setRemote } from './lib/git.mjs'
 import { collectDiagnostics } from './lib/diagnostics.mjs'
 import { repairLog } from './lib/repair.mjs'
+import { pruneAttachments } from './lib/attachments.mjs'
+import { decodeFrame, frameSlices } from './lib/frames.mjs'
 import { readMeta, writeMeta } from './lib/mirror-meta.mjs'
 import { createRemote } from './lib/remote.mjs'
 
@@ -208,6 +210,53 @@ async function cmdCompact(opts) {
  * Починить логи, скопированные при конфликте: в копии новый идентификатор в
  * заголовке, а события называют исходную сессию, и DSH считает лог битым.
  */
+/** Собрать хеши вложений, на которые ссылаются оставшиеся сессии. */
+async function collectAttachmentReferences(sessions) {
+  const references = new Set()
+  for (const session of sessions) {
+    if (typeof session.path !== 'string' || !existsSync(session.path)) continue
+    let bytes
+    try {
+      bytes = await readFile(session.path)
+    } catch {
+      continue
+    }
+    for (const [start, end] of frameSlices(bytes).slice(1)) {
+      try {
+        const text = decodeFrame(bytes, start, end)
+        for (const match of text.matchAll(/sha256:([0-9a-f]{64})/g)) references.add(match[1])
+      } catch {
+        // битый кадр не мешает остальным
+      }
+    }
+  }
+  return references
+}
+
+/** Удалить вложения, которые больше не нужны ни одной сессии. */
+async function cmdPruneAttachments(opts) {
+  const dshHome = home(opts)
+  const config = await loadConfig(dshHome)
+  const sessions = await listLocalSessions(dshHome)
+  const references = await collectAttachmentReferences(sessions)
+  console.log(`ссылок в сессиях: ${references.size}, сессий просмотрено: ${sessions.length}`)
+
+  const result = await pruneAttachments({
+    home: dshHome,
+    repoDir: config.repoDir,
+    references,
+    dryRun: opts['dry-run'] === true,
+  })
+  console.log(`удалено файлов: ${result.removed}, оставлено: ${result.kept}, объём: ${(result.bytes / 1024 / 1024).toFixed(1)} MB`)
+  if (result.archive) console.log(`архив: ${result.archive}`)
+
+  if (!opts['dry-run'] && result.removed > 0 && config.backend !== 'folder') {
+    const remote = await createRemote(config)
+    const commit = await remote.commit('dsh-sync: убраны неиспользуемые вложения')
+    console.log(`зеркало: ${commit.committed ? 'коммит создан' : 'без изменений'}`)
+  }
+}
+
 async function cmdRepair(opts) {
   const dshHome = home(opts)
   const sessions = await listLocalSessions(dshHome)
@@ -297,6 +346,7 @@ async function main() {
   if (command === 'status') return cmdStatus(opts)
   if (command === 'compact') return cmdCompact(opts)
   if (command === 'repair') return cmdRepair(opts)
+  if (command === 'prune-attachments') return cmdPruneAttachments(opts)
   if (command === 'device') return cmdDevice(sub, rest, opts)
   if (command === 'diagnostics') return cmdDiagnostics(opts)
 
@@ -309,6 +359,7 @@ async function main() {
   console.log('  dsh-sync device list | forget <id>')
   console.log('  dsh-sync compact [--months 36] [--dry-run]')
   console.log('  dsh-sync repair [--dry-run]')
+  console.log('  dsh-sync prune-attachments [--dry-run]')
   console.log('  dsh-sync push [--project <id>] [--no-prune]')
   console.log('  dsh-sync pull [--project <id>] [--dry-run]')
   console.log('')

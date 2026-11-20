@@ -779,7 +779,14 @@ async function autoTick(ctx) {
       const fingerprint = await computeFingerprint(ctx)
       const changed = fingerprint !== '' && fingerprint !== automation.fingerprint
       const pushDue = now - automation.lastPushAt >= (automation.lastPushOk === false ? retryMs : pushEvery)
-      if (changed && pushDue) {
+
+      // Удаление сессии плагином удаления не меняет размер логов, зато сразу
+      // уменьшает список сессий рабочего пространства — отправляем без задержки.
+      const workspaceCount = countWorkspaceSessions(ctx)
+      const shrunk = automation.workspaceCount !== undefined && workspaceCount < automation.workspaceCount
+      automation.workspaceCount = workspaceCount
+
+      if ((changed && pushDue) || shrunk) {
         const record = await runSync(ctx, 'push')
         automation.lastPushAt = Date.now()
         automation.lastPushOk = record?.ok === true
@@ -1066,6 +1073,21 @@ async function detachSessions(ctx, sessionIds) {
     }
   }
   return detached
+}
+
+/** Сколько всего сессий числится за рабочими пространствами. */
+function countWorkspaceSessions(ctx) {
+  try {
+    const registry = ctx?.get?.('workspaceRegistry')
+    if (registry === undefined || registry === null || typeof registry.list !== 'function') return 0
+    let total = 0
+    for (const workspace of registry.list() ?? []) {
+      total += Array.isArray(workspace?.sessionIds) ? workspace.sessionIds.length : 0
+    }
+    return total
+  } catch {
+    return 0
+  }
 }
 
 /**
