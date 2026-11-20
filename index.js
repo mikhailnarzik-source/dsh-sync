@@ -22,6 +22,7 @@ import { collectDiagnostics } from './lib/diagnostics.mjs'
 import { readHistory, recordRun } from './lib/history.mjs'
 import { readLedger, sessionState } from './lib/ledger.mjs'
 import { probeYandex } from './lib/yandex.mjs'
+import { probeWebdav } from './lib/webdav.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
@@ -290,6 +291,20 @@ async function checkEnvironment(config) {
     return checks
   }
 
+  if (config?.backend === 'webdav') {
+    const login = (config.webdavLogin ?? '').trim()
+    const pass = (config.webdavPassword ?? '').trim()
+    const ready = login !== '' && pass !== ''
+    checks.push({
+      id: 'remote',
+      title: 'Яндекс.Диск (WebDAV)',
+      ok: ready,
+      detail: ready ? `папка /${config.webdavPath ?? 'dsh-sync'}` : 'не заданы логин или пароль приложения',
+      hint: 'Пароль приложения создаётся на id.yandex.ru → Безопасность → Пароли приложений (тип «Файлы»).',
+    })
+    return checks
+  }
+
   if (config?.backend === 'folder') {
     const folder = config.repoDir ?? ''
     let ok = false
@@ -537,7 +552,7 @@ async function saveSettings(ctx, payload) {
   const projectPath = typeof payload.projectPath === 'string' ? payload.projectPath.trim() : ''
   const projectId = (projectIdRaw || 'default').toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 
-  config.backend = payload.backend === 'folder' ? 'folder' : payload.backend === 'yandex' ? 'yandex' : 'git'
+  config.backend = ['folder', 'yandex', 'webdav'].includes(payload.backend) ? payload.backend : 'git'
   if (config.backend === 'folder') {
     if (folder !== '') config.repoDir = folder
   } else if (config.backend === 'yandex') {
@@ -548,6 +563,15 @@ async function saveSettings(ctx, payload) {
     if (token !== '') config.yandexToken = token
     const yandexPath = typeof payload.yandexPath === 'string' ? payload.yandexPath.trim() : ''
     if (yandexPath !== '') config.yandexPath = yandexPath
+  } else if (config.backend === 'webdav') {
+    const cacheDefault = join(home, 'dsh-sync', 'webdav-cache')
+    config.repoDir = folder !== '' && folder !== join(home, 'dsh-sync', 'repo') ? folder : cacheDefault
+    const login = typeof payload.webdavLogin === 'string' ? payload.webdavLogin.trim() : ''
+    if (login !== '') config.webdavLogin = login
+    const pass = typeof payload.webdavPassword === 'string' ? payload.webdavPassword.trim() : ''
+    if (pass !== '') config.webdavPassword = pass
+    const wpath = typeof payload.webdavPath === 'string' ? payload.webdavPath.trim() : ''
+    if (wpath !== '') config.webdavPath = wpath
   } else if (remote !== '') {
     config.remote = remote
   }
@@ -1447,7 +1471,15 @@ export function apply(ctx) {
       const token = typeof payload.yandexToken === 'string' && payload.yandexToken.trim() !== ''
         ? payload.yandexToken.trim()
         : config.yandexToken
-      const result = await probeYandex({
+      const backend = payload.backend === 'webdav' ? 'webdav' : 'yandex'
+      const result = backend === 'webdav'
+        ? await probeWebdav({
+            repoDir: config.repoDir,
+            webdavLogin: typeof payload.webdavLogin === 'string' && payload.webdavLogin.trim() !== '' ? payload.webdavLogin.trim() : config.webdavLogin,
+            webdavPassword: typeof payload.webdavPassword === 'string' && payload.webdavPassword.trim() !== '' ? payload.webdavPassword.trim() : config.webdavPassword,
+            webdavPath: typeof payload.webdavPath === 'string' && payload.webdavPath.trim() !== '' ? payload.webdavPath.trim() : config.webdavPath,
+          })
+        : await probeYandex({
         backend: 'yandex',
         repoDir: config.repoDir,
         yandexToken: token,

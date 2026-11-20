@@ -180,7 +180,7 @@ window.__ModuleLoader__.load({
         const data = state.data;
         const [update, setUpdate] = React.useState(null);
         const [updateNote, setUpdateNote] = React.useState('');
-        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', yandexToken: '', yandexPath: 'dsh-sync', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
+        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', yandexToken: '', yandexPath: 'dsh-sync', webdavLogin: '', webdavPassword: '', webdavPath: 'dsh-sync', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
 
         React.useEffect(() => {
@@ -231,6 +231,9 @@ window.__ModuleLoader__.load({
             autoUpdate: data.config.autoUpdate === true,
             yandexToken: data.config.yandexToken ?? '',
             yandexPath: data.config.yandexPath ?? 'dsh-sync',
+            webdavLogin: data.config.webdavLogin ?? '',
+            webdavPassword: data.config.webdavPassword ?? '',
+            webdavPath: data.config.webdavPath ?? 'dsh-sync',
             useExternal: data.config.useExternal !== false,
           });
         }, [data?.config?.remote, data?.config?.projectPath, data?.config?.projectId, data?.config?.attachments, data?.config?.useExternal, touched]);
@@ -281,7 +284,14 @@ window.__ModuleLoader__.load({
         const checkYandex = async () => {
           publish({ busy: 'yandex', notice: '', error: '' });
           try {
-            const result = await post('/api/dsh-sync/yandex-check', { yandexToken: draft.yandexToken, yandexPath: draft.yandexPath });
+            const result = await post('/api/dsh-sync/yandex-check', {
+              backend: draft.backend,
+              yandexToken: draft.yandexToken,
+              yandexPath: draft.yandexPath,
+              webdavLogin: draft.webdavLogin,
+              webdavPassword: draft.webdavPassword,
+              webdavPath: draft.webdavPath,
+            });
             if (result?.ok === true) publish({ busy: '', notice: result.message ?? 'Доступ к Диску подтверждён' });
             else publish({ busy: '', error: result?.message ?? 'Не удалось войти в Яндекс.Диск' });
           } catch (error) {
@@ -380,7 +390,8 @@ window.__ModuleLoader__.load({
                 },
                 h('option', { value: 'git' }, 'Git-репозиторий (GitHub, GitLab)'),
                 h('option', { value: 'folder' }, 'Папка облачного диска (клиент Яндекс.Диска, OneDrive)'),
-                h('option', { value: 'yandex' }, 'Яндекс.Диск через API (без программы)'),
+                h('option', { value: 'webdav' }, 'Яндекс.Диск (WebDAV, пароль приложения)'),
+                h('option', { value: 'yandex' }, 'Яндекс.Диск через API (OAuth-токен)'),
               ),
             ),
             draft.backend === 'folder'
@@ -409,6 +420,43 @@ window.__ModuleLoader__.load({
                         `Подставить ${data.suggestedFolder}`,
                       )
                     : null,
+                )
+              : draft.backend === 'webdav'
+              ? h(
+                  'div',
+                  { style: S.field },
+                  h('span', { style: S.label }, 'Логин Яндекс.Диска'),
+                  h('input', {
+                    style: S.input,
+                    value: draft.webdavLogin,
+                    placeholder: 'narzik',
+                    onChange: (event) => set({ webdavLogin: event.target.value }),
+                  }),
+                  h('span', { style: S.label }, 'Пароль приложения'),
+                  h('input', {
+                    style: S.input,
+                    type: 'password',
+                    value: draft.webdavPassword,
+                    placeholder: 'xxxx xxxx xxxx xxxx',
+                    onChange: (event) => set({ webdavPassword: event.target.value }),
+                  }),
+                  h('span', { style: S.label }, 'Папка на Диске'),
+                  h('input', {
+                    style: S.input,
+                    value: draft.webdavPath,
+                    placeholder: 'dsh-sync',
+                    onChange: (event) => set({ webdavPath: event.target.value }),
+                  }),
+                  h(
+                    'span',
+                    { style: S.hint },
+                    'Пароль приложения создаётся на id.yandex.ru → Безопасность → Пароли приложений (тип «Файлы»). Программа Яндекс.Диска не нужна.',
+                  ),
+                  h(
+                    'button',
+                    { style: S.button, disabled: busy, onClick: () => void checkYandex() },
+                    state.busy === 'yandex' ? 'Проверка…' : 'Проверить доступ',
+                  ),
                 )
               : draft.backend === 'yandex'
               ? h(
