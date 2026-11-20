@@ -670,8 +670,16 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   style: S.button,
-                  disabled: busy,
-                  onClick: () => void save(draft),
+                  disabled: busy || data === null,
+                  onClick: () => {
+                    // Сохраняем только на загруженных настройках: иначе пустые
+                    // значения по умолчанию затирают уже настроенное хранилище.
+                    if (data === null) {
+                      publish({ error: 'Настройки ещё загружаются — подождите пару секунд.' });
+                      return;
+                    }
+                    void save(draft);
+                  },
                 },
                 state.busy === 'save' ? 'Сохранение…' : 'Сохранить',
               ),

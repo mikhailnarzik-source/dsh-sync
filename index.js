@@ -546,6 +546,16 @@ async function saveSettings(ctx, payload) {
     ? await loadConfig(home)
     : { ...defaultConfig(home) }
 
+  // Перед изменением сохраняем копию: настройки содержат адреса и пароли
+  // приложений, и случайная перезапись не должна их терять.
+  try {
+    if (existsSync(join(home, 'dsh-sync.json'))) {
+      await writeFile(join(home, 'dsh-sync.json.bak-last'), await readFile(join(home, 'dsh-sync.json'), 'utf8'), 'utf8')
+    }
+  } catch {
+    // копия — страховка, не критично
+  }
+
   const remote = typeof payload.remote === 'string' ? payload.remote.trim() : config.remote
   const folder = typeof payload.repoDir === 'string' ? payload.repoDir.trim() : config.repoDir
   const projectIdRaw = typeof payload.projectId === 'string' ? payload.projectId.trim() : ''
@@ -579,7 +589,7 @@ async function saveSettings(ctx, payload) {
   config.autoUpdate = payload.autoUpdate === true
 
   // Резервное хранилище: туда дублируются сессии (без вложений).
-  if (typeof payload.secondaryBackend === 'string') {
+  if (typeof payload.secondaryBackend === 'string' && payload.secondaryBackend !== '') {
     const kind = payload.secondaryBackend
     if (kind === '' || kind === 'none') {
       delete config.secondary
