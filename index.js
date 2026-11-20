@@ -54,6 +54,8 @@ const automation = {
   lastTickAt: 0,
   lastError: '',
   fingerprint: '',
+  lastPullOk: true,
+  lastPushOk: true,
   timer: null,
 }
 
@@ -675,7 +677,8 @@ async function runViaExternal(external, action) {
   }
 }
 
-async function writeLastRun(record) {  const dir = join(dshHome(), 'dsh-sync')
+async function writeLastRun(record) {
+  const dir = join(dshHome(), 'dsh-sync')
   try {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, LAST_RUN_FILE), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
@@ -738,24 +741,35 @@ async function autoTick(ctx) {
   automation.running = true
   try {
     const now = Date.now()
-    const pullEvery = (options.pullIntervalMinutes ?? 15) * 60_000
-    const pushEvery = (options.pushMinIntervalMinutes ?? 5) * 60_000
+    const pullEvery = Math.max(60_000, (options.pullIntervalMinutes ?? 15) * 60_000)
+    const pushEvery = Math.max(0, (options.pushMinIntervalMinutes ?? 5) * 60_000)
+    const retryMs = 60_000
 
-    if (automation.lastPullAt === 0 && options.pullOnStart !== false) {
-      await runSync(ctx, 'pull')
+    // Приём: при старте — всегда (если не выключен), дальше по интервалу.
+    // Неудачная попытка повторяется через минуту, а не через четверть часа.
+    const pullDue = automation.lastPullAt === 0
+      ? options.pullOnStart !== false
+      : now - automation.lastPullAt >= (automation.lastPullOk ? pullEvery : retryMs)
+
+    if (pullDue) {
+      const record = await runSync(ctx, 'pull')
       automation.lastPullAt = Date.now()
-    } else if (pullEvery > 0 && now - automation.lastPullAt >= pullEvery) {
-      await runSync(ctx, 'pull')
+      automation.lastPullOk = record?.ok === true
+      if (record?.ok !== true) automation.lastError = String(record?.message ?? '')
+    } else if (automation.lastPullAt === 0) {
       automation.lastPullAt = Date.now()
     }
 
-    const fingerprint = await computeFingerprint(ctx)
-    if (fingerprint !== '' && fingerprint !== automation.fingerprint) {
-      if (now - automation.lastPushAt >= pushEvery) {
+    if (options.pushOnChange !== false) {
+      const fingerprint = await computeFingerprint(ctx)
+      const changed = fingerprint !== '' && fingerprint !== automation.fingerprint
+      const pushDue = now - automation.lastPushAt >= (automation.lastPushOk === false ? retryMs : pushEvery)
+      if (changed && pushDue) {
         const record = await runSync(ctx, 'push')
         automation.lastPushAt = Date.now()
+        automation.lastPushOk = record?.ok === true
         automation.lastError = record?.ok === true ? '' : String(record?.message ?? '')
-        automation.fingerprint = fingerprint
+        if (record?.ok === true) automation.fingerprint = fingerprint
       }
     }
   } catch (error) {
@@ -1022,7 +1036,7 @@ function startAutomation(ctx) {
   ctx.effect(() => {
     const initial = setTimeout(() => {
       void autoTick(ctx)
-    }, 10_000)
+    }, 3_000)
     initial.unref?.()
     const timer = setInterval(() => {
       void autoTick(ctx)
