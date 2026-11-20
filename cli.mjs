@@ -12,13 +12,14 @@
  *   dsh-sync pull
  */
 import { join } from 'node:path'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { loadConfig, normalizeProjectId, resolveDshHome, saveConfig } from './lib/config.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
 import { ensureRepo, git, setRemote } from './lib/git.mjs'
 import { collectDiagnostics } from './lib/diagnostics.mjs'
+import { repairLog } from './lib/repair.mjs'
 import { readMeta, writeMeta } from './lib/mirror-meta.mjs'
 import { createRemote } from './lib/remote.mjs'
 
@@ -203,6 +204,38 @@ async function cmdCompact(opts) {
   console.log(`  git -C "${config.repoDir}" push --force origin HEAD:${config.branch}`)
 }
 
+/**
+ * Починить логи, скопированные при конфликте: в копии новый идентификатор в
+ * заголовке, а события называют исходную сессию, и DSH считает лог битым.
+ */
+async function cmdRepair(opts) {
+  const dshHome = home(opts)
+  const sessions = await listLocalSessions(dshHome)
+  let fixed = 0
+  let checked = 0
+
+  for (const session of sessions) {
+    if (typeof session.path !== 'string' || !existsSync(session.path)) continue
+    checked += 1
+    try {
+      const bytes = await readFile(session.path)
+      const result = repairLog(bytes)
+      if (result.changed > 0) {
+        if (!opts['dry-run']) await writeFile(session.path, result.bytes)
+        fixed += 1
+        console.log(`  ${session.id}: исправлено событий ${result.changed}${opts['dry-run'] ? ' (сухой прогон)' : ''}`)
+      }
+    } catch (error) {
+      console.log(`  ${session.id}: не удалось проверить (${error instanceof Error ? error.message : String(error)})`)
+    }
+  }
+
+  console.log(`проверено сессий: ${checked}, исправлено: ${fixed}`)
+  if (fixed > 0 && !opts['dry-run']) {
+    console.log('теперь выполните dsh-sync push — исправления уедут в зеркало')
+  }
+}
+
 async function cmdStatus(opts) {
   const dshHome = home(opts)
   const config = await loadConfig(dshHome)
@@ -263,6 +296,7 @@ async function main() {
 
   if (command === 'status') return cmdStatus(opts)
   if (command === 'compact') return cmdCompact(opts)
+  if (command === 'repair') return cmdRepair(opts)
   if (command === 'device') return cmdDevice(sub, rest, opts)
   if (command === 'diagnostics') return cmdDiagnostics(opts)
 
@@ -274,6 +308,7 @@ async function main() {
   console.log('  dsh-sync diagnostics [--save]')
   console.log('  dsh-sync device list | forget <id>')
   console.log('  dsh-sync compact [--months 36] [--dry-run]')
+  console.log('  dsh-sync repair [--dry-run]')
   console.log('  dsh-sync push [--project <id>] [--no-prune]')
   console.log('  dsh-sync pull [--project <id>] [--dry-run]')
   console.log('')
