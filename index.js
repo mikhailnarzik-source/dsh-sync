@@ -1476,4 +1476,4 @@ async function writeStatus(patch) {
 //
 
 // Отметка о загрузке модуля: по ней видно, дошло ли дело до host-части вообще.
-void writeStatus({ imported: true, version: '0.2.1' })
+void writeStatus({ imported: true })
