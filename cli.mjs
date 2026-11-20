@@ -19,8 +19,10 @@ import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/
 import { pull, push } from './lib/sync.mjs'
 import { ensureRepo, git, setRemote } from './lib/git.mjs'
 import { collectDiagnostics } from './lib/diagnostics.mjs'
+import { readMeta, writeMeta } from './lib/mirror-meta.mjs'
+import { createRemote } from './lib/remote.mjs'
 
-const VALUE_FLAGS = new Set(['home', 'remote', 'repo', 'branch', 'path', 'title', 'project', 'backend'])
+const VALUE_FLAGS = new Set(['home', 'remote', 'repo', 'branch', 'path', 'title', 'project', 'backend', 'months'])
 
 function parseArgs(argv) {
   const opts = {}
@@ -121,6 +123,86 @@ async function cmdDiagnostics(opts) {
   }
 }
 
+async function cmdDevice(sub, rest, opts) {
+  const dshHome = home(opts)
+  const config = await loadConfig(dshHome)
+  if (!config.repoDir || !existsSync(config.repoDir)) throw new Error('зеркало ещё не создано')
+
+  const remote = await createRemote(config)
+  await remote.sync()
+  const meta = await readMeta(config.repoDir)
+
+  if (sub === 'forget') {
+    const id = rest[0]
+    if (!id) throw new Error('укажите id устройства: dsh-sync device forget <id>')
+    for (const project of Object.values(meta.projects ?? {})) {
+      if (project?.devices !== undefined) delete project.devices[id]
+    }
+    await writeMeta(config.repoDir, meta)
+    const result = await remote.commit(`dsh-sync: forget device ${id}`)
+    console.log(`устройство ${id} убрано из метаданных; коммит: ${result.committed ? 'создан' : 'нет изменений'}`)
+    return
+  }
+
+  const devices = new Set()
+  for (const project of Object.values(meta.projects ?? {})) {
+    for (const id of Object.keys(project?.devices ?? {})) devices.add(id)
+  }
+  if (devices.size === 0) {
+    console.log('в метаданных зеркала нет устройств')
+    return
+  }
+  console.log('устройства в зеркале:')
+  for (const id of [...devices].sort()) console.log(`  ${id}`)
+}
+
+/**
+ * Свернуть историю старше N месяцев в один корневой коммит.
+ * Нужный для роста репозитория случай: старые версии бинарных логов больше не
+ * нужны, а места занимают много.
+ */
+async function cmdCompact(opts) {
+  const dshHome = home(opts)
+  const config = await loadConfig(dshHome)
+  const months = Number(opts.months ?? 36)
+  if (!Number.isFinite(months) || months <= 0) throw new Error('--months должен быть положительным числом')
+  if (config.backend === 'folder') throw new Error('для папки-бэкенда история не ведётся')
+  if (!config.repoDir || !existsSync(config.repoDir)) throw new Error('зеркало ещё не создано')
+
+  const cutoffMs = Date.now() - months * 30 * 24 * 60 * 60 * 1000
+  const cutoff = new Date(cutoffMs).toISOString()
+  const revList = await git(config.repoDir, ['rev-list', '-1', `--before=${cutoff}`, 'HEAD'], { allowFailure: true })
+  const base = revList.stdout.trim()
+  if (base === '') {
+    console.log(`нечего сворачивать: все коммиты моложе ${months} мес.`)
+    return
+  }
+
+  const tree = (await git(config.repoDir, ['rev-parse', `${base}^{tree}`])).stdout.trim()
+  const root = (await git(config.repoDir, [
+    '-c', 'user.name=dsh-sync', '-c', 'user.email=dsh-sync@localhost',
+    'commit-tree', tree, '-m', `base: история до ${cutoff.slice(0, 10)} свёрнута`,
+  ])).stdout.trim()
+
+  console.log(`база (последний коммит старше отсечки): ${base.slice(0, 12)}`)
+  console.log(`новый корневой коммит:                  ${root.slice(0, 12)}`)
+
+  if (opts['dry-run']) {
+    console.log('сухой прогон: ничего не изменено')
+    return
+  }
+
+  const rebased = await git(config.repoDir, ['rebase', '--onto', root, base, 'HEAD'], { allowFailure: true })
+  if (rebased.code !== 0) {
+    await git(config.repoDir, ['rebase', '--abort'], { allowFailure: true })
+    throw new Error(`rebase не удался: ${(rebased.stderr || rebased.stdout).trim().slice(0, 300)}`)
+  }
+
+  await git(config.repoDir, ['gc', '--prune=now', '--quiet'], { allowFailure: true })
+  console.log('история свёрнута. Чтобы обновить удалённый репозиторий, нужен force-push:')
+  console.log(`  git -C "${config.repoDir}" push --force origin HEAD:${config.branch}`)
+}
+
 async function cmdStatus(opts) {
   const dshHome = home(opts)
   const config = await loadConfig(dshHome)
@@ -180,6 +262,8 @@ async function main() {
   }
 
   if (command === 'status') return cmdStatus(opts)
+  if (command === 'compact') return cmdCompact(opts)
+  if (command === 'device') return cmdDevice(sub, rest, opts)
   if (command === 'diagnostics') return cmdDiagnostics(opts)
 
   console.log('использование:')
@@ -187,6 +271,9 @@ async function main() {
   console.log('  dsh-sync project add <id> --path <локальный путь> [--title <название>]')
   console.log('  dsh-sync project list | remove <id>')
   console.log('  dsh-sync status')
+  console.log('  dsh-sync diagnostics [--save]')
+  console.log('  dsh-sync device list | forget <id>')
+  console.log('  dsh-sync compact [--months 36] [--dry-run]')
   console.log('  dsh-sync push [--project <id>] [--no-prune]')
   console.log('  dsh-sync pull [--project <id>] [--dry-run]')
   console.log('')

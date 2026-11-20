@@ -45,6 +45,7 @@ test('git: инициализация, remote, fetch и коммит идут в
       'git -C ' + repoDir + ' diff --cached --name-only',
       'git -C ' + repoDir + ' -c user.name=dsh-sync -c user.email=dsh-sync@localhost commit --quiet -m test',
       'git -C ' + repoDir + ' push --quiet origin HEAD:main',
+      'git -C ' + repoDir + ' gc --auto --quiet',
     ])
   } finally {
     __setRunnerForTest(null)

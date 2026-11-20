@@ -180,7 +180,7 @@ window.__ModuleLoader__.load({
         const data = state.data;
         const [update, setUpdate] = React.useState(null);
         const [updateNote, setUpdateNote] = React.useState('');
-        const [draft, setDraft] = React.useState({ remote: '', projectPath: '', projectId: '', attachments: false, useExternal: true });
+        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', projectPath: '', projectId: '', attachments: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
 
         React.useEffect(() => {
@@ -222,7 +222,9 @@ window.__ModuleLoader__.load({
         React.useEffect(() => {
           if (data?.config === undefined || touched) return;
           setDraft({
+            backend: data.config.backend === 'folder' ? 'folder' : 'git',
             remote: data.config.remote ?? '',
+            repoDir: data.config.repoDir ?? '',
             projectPath: data.config.projectPath ?? '',
             projectId: data.config.projectId ?? '',
             attachments: data.config.attachments === true,
@@ -354,14 +356,41 @@ window.__ModuleLoader__.load({
             h(
               'label',
               { style: S.field },
-              h('span', { style: S.label }, 'Адрес репозитория с сессиями (приватный)'),
-              h('input', {
-                style: S.input,
-                value: draft.remote,
-                placeholder: 'https://github.com/user/dsh-sessions.git',
-                onChange: (event) => set({ remote: event.target.value }),
-              }),
+              h('span', { style: S.label }, 'Тип хранилища'),
+              h(
+                'select',
+                {
+                  style: S.input,
+                  value: draft.backend,
+                  onChange: (event) => set({ backend: event.target.value }),
+                },
+                h('option', { value: 'git' }, 'Git-репозиторий (GitHub, GitLab)'),
+                h('option', { value: 'folder' }, 'Папка облачного диска (OneDrive, Яндекс.Диск)'),
+              ),
             ),
+            draft.backend === 'folder'
+              ? h(
+                  'label',
+                  { style: S.field },
+                  h('span', { style: S.label }, 'Папка зеркала'),
+                  h('input', {
+                    style: S.input,
+                    value: draft.repoDir,
+                    placeholder: 'C:\\Users\\me\\YandexDisk\\dsh-sync',
+                    onChange: (event) => set({ repoDir: event.target.value }),
+                  }),
+                )
+              : h(
+                  'label',
+                  { style: S.field },
+                  h('span', { style: S.label }, 'Адрес репозитория с сессиями (приватный)'),
+                  h('input', {
+                    style: S.input,
+                    value: draft.remote,
+                    placeholder: 'https://github.com/user/dsh-sessions.git',
+                    onChange: (event) => set({ remote: event.target.value }),
+                  }),
+                ),
             h(
               'label',
               { style: S.field },
@@ -469,6 +498,9 @@ window.__ModuleLoader__.load({
             status
               ? h('span', { style: S.hint }, `Сессий локально: ${status.local}, в зеркале: ${status.mirror}. Только локально: ${status.onlyLocal}, только в зеркале: ${status.onlyMirror}.`)
               : null,
+            data?.pending
+              ? h('span', { style: S.note }, 'Есть неотправленные изменения — они уйдут при следующей отправке (не чаще раза в 5 минут) или по кнопке.')
+              : null,
             status && status.local === 0 && status.mirror > 0
               ? h(
                   'span',
@@ -495,6 +527,20 @@ window.__ModuleLoader__.load({
                   `${new Date(last.at).toLocaleString('ru-RU')} — ${last.ok ? 'успешно' : 'ошибка'}: ${last.message}`,
                 )
               : h('span', { style: S.hint }, 'Ещё не запускалось.'),
+            (data?.history?.length ?? 0) > 0
+              ? h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: 2 } },
+                  h('span', { style: S.label }, 'Последние запуски'),
+                  ...data.history.slice(-3).reverse().map((entry, index) =>
+                    h(
+                      'span',
+                      { key: `h${index}`, style: entry.ok ? S.meta : S.error },
+                      `${new Date(entry.at).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })} — ${entry.ok ? 'ok' : 'ошибка'}: ${entry.message}`,
+                    ),
+                  ),
+                )
+              : null,
             h('span', { style: S.hint }, 'После приёма новых сессий перезапустите DSH — список обновляется при старте.'),
             data?.automation
               ? h(

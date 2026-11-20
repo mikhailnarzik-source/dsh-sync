@@ -18,6 +18,7 @@ import { readFile as readFileText } from 'node:fs/promises'
 import { defaultConfig, loadConfig, saveConfig } from './lib/config.mjs'
 import { encodeSegment, projectKey, samePath } from './lib/format.mjs'
 import { collectDiagnostics } from './lib/diagnostics.mjs'
+import { readHistory, recordRun } from './lib/history.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
@@ -320,10 +321,14 @@ async function readState(ctx) {
   } catch {
     lastRun = null
   }
+  const history = await readHistory(home, 5)
 
   const external = await discoverExternal(ctx)
   const preferExternal = config.useExternal !== false
   const mode = external.found && external.callable && preferExternal ? 'external' : 'builtin'
+
+  const currentFingerprint = await computeFingerprint(ctx)
+  const pending = automation.fingerprint !== '' && currentFingerprint !== '' && currentFingerprint !== automation.fingerprint
 
   // Диагностика расхождения счётчиков: если локальных сессий не видно, а в
   // зеркале они есть, сохраняем, что именно просканировано.
@@ -357,6 +362,8 @@ async function readState(ctx) {
     checks,
     ready: checks.every(check => check.ok),
     status: { local, mirror, onlyLocal, onlyMirror },
+    pending,
+    history,
     automation: {
       enabled: automation.enabled,
       running: automation.running,
@@ -440,12 +447,17 @@ async function saveSettings(ctx, payload) {
     : { ...defaultConfig(home) }
 
   const remote = typeof payload.remote === 'string' ? payload.remote.trim() : config.remote
+  const folder = typeof payload.repoDir === 'string' ? payload.repoDir.trim() : config.repoDir
   const projectIdRaw = typeof payload.projectId === 'string' ? payload.projectId.trim() : ''
   const projectPath = typeof payload.projectPath === 'string' ? payload.projectPath.trim() : ''
   const projectId = (projectIdRaw || 'default').toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 
-  config.remote = remote
-  config.backend = 'git'
+  config.backend = payload.backend === 'folder' ? 'folder' : 'git'
+  if (config.backend === 'folder') {
+    if (folder !== '') config.repoDir = folder
+  } else if (remote !== '') {
+    config.remote = remote
+  }
   config.attachments = payload.attachments === true
   if (typeof payload.useExternal === 'boolean') config.useExternal = payload.useExternal
   config.projects = { [projectId]: { path: projectPath, title: projectId } }
@@ -553,9 +565,7 @@ async function runSync(ctx, action) {
     // пространству может только host-часть: у неё есть реестр.
     if (action !== 'push' && viaChild.ok === true) {
       try {
-        const entry = Object.values(config.projects ?? {})[0]
-        const located = await localSessionsFor(ctx, home, entry?.path ?? '')
-        const attached = await attachSessions(ctx, entry?.path ?? '', located.sessions.filter(session => !session.parent).map(session => session.id))
+        const attached = await attachAllProjects(ctx, config)
         if (attached > 0) {
           viaChild.message = `${viaChild.message}; привязано к рабочему пространству: ${attached}`
           await writeLastRun({ ...viaChild })
@@ -586,9 +596,7 @@ async function runSync(ctx, action) {
 
       // Привязать к рабочему пространству и импортированное, и то, что уже
       // лежало на диске после прошлых синхронизаций.
-      const entry = Object.values(config.projects ?? {})[0]
-      const located = await localSessionsFor(ctx, home, entry?.path ?? '')
-      const attached = await attachSessions(ctx, entry?.path ?? '', located.sessions.filter(session => !session.parent).map(session => session.id))
+      const attached = await attachAllProjects(ctx, config)
       if (attached > 0) messages.push(`привязано к рабочему пространству: ${attached}`)
     }
     if (action !== 'pull') {
@@ -678,13 +686,7 @@ async function runViaExternal(external, action) {
 }
 
 async function writeLastRun(record) {
-  const dir = join(dshHome(), 'dsh-sync')
-  try {
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, LAST_RUN_FILE), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  } catch {
-    // запись истории не критична
-  }
+  await recordRun(dshHome(), record)
 }
 
 function json(value, status = 200) {
@@ -957,6 +959,23 @@ async function createRepository(ctx) {
       message: `Не удалось связаться с GitHub: ${error instanceof Error ? error.message : String(error)}`,
     }
   }
+}
+
+/** Привязать сессии всех настроенных проектов к их рабочим пространствам. */
+async function attachAllProjects(ctx, config) {
+  let attached = 0
+  for (const entry of Object.values(config.projects ?? {})) {
+    const path = typeof entry?.path === 'string' ? entry.path : ''
+    if (path === '') continue
+    try {
+      const located = await localSessionsFor(ctx, dshHome(), path)
+      const ids = located.sessions.filter(session => !session.parent).map(session => session.id)
+      attached += await attachSessions(ctx, path, ids)
+    } catch {
+      // один проект не должен мешать остальным
+    }
+  }
+  return attached
 }
 
 /**
