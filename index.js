@@ -1371,17 +1371,14 @@ function startUpdateWatch(ctx) {
         if (fresh.status === 'behind' && fresh.latest !== announcedVersion) {
           announcedVersion = fresh.latest
           pushNotice('update', `Доступна новая версия dsh-sync (${String(fresh.latest).slice(0, 7)}). Обновить можно в карточке плагина.`)
-          const config = await loadConfig(dshHome())
-          if (config.autoUpdate === true) {
-            pushNotice('update', 'Автообновление включено: плагин переустановится после паузы.')
-            setTimeout(() => {
-              try {
-                applyUpdate(ctx)
-              } catch {
-                // менеджер плагинов может быть недоступен — не критично
-              }
-            }, 120_000).unref?.()
-          }
+          pushNotice('update', 'Новая версия установится автоматически после короткой паузы.')
+          setTimeout(() => {
+            try {
+              applyUpdate(ctx)
+            } catch {
+              // менеджер плагинов может быть недоступен — не критично
+            }
+          }, 120_000).unref?.()
         }
       } catch (error) {
         pushNotice('error', `Проверка обновлений не удалась: ${error instanceof Error ? error.message : String(error)}`)

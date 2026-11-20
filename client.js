@@ -361,13 +361,15 @@ window.__ModuleLoader__.load({
               { style: S.hint },
               update === null
                 ? 'Проверяем версию…'
-                : update.status === 'behind'
-                  ? `Доступно обновление: ${shortSha(update.installed)} → ${shortSha(update.latest)}`
-                  : update.status === 'current'
-                    ? `Актуально (${shortSha(update.installed)})`
-                    : update.detail !== undefined && update.detail !== ''
-                      ? `Проверка не удалась: ${update.detail}`
-                      : 'Состояние неизвестно',
+                : update.status === 'local'
+                  ? 'Локальная установка: свежий код уже на месте, обновлять нечего.'
+                  : update.status === 'behind'
+                    ? `Доступно обновление: ${shortSha(update.installed)} → ${shortSha(update.latest)} — установится автоматически.`
+                    : update.status === 'current'
+                      ? `Актуально (${shortSha(update.installed)})`
+                      : update.detail !== undefined && update.detail !== ''
+                        ? `Проверка не удалась: ${update.detail}`
+                        : 'Состояние неизвестно',
             ),
             update?.status === 'behind'
               ? h('button', { style: S.button, onClick: () => void applyUpdate() }, 'Обновить')
@@ -569,14 +571,9 @@ window.__ModuleLoader__.load({
               h('span', null, 'Синхронизировать вложения (картинки и файлы из чата)'),
             ),
             h(
-              'label',
-              { style: S.checkboxRow },
-              h('input', {
-                type: 'checkbox',
-                checked: draft.autoUpdate,
-                onChange: (event) => set({ autoUpdate: event.target.checked }),
-              }),
-              h('span', null, 'Обновлять плагин автоматически, когда выходит новая версия'),
+              'span',
+              { style: S.hint },
+              'Плагин обновляется сам: проверка раз в 6 часов, при выходе новой версии установка идёт автоматически.',
             ),
             h(
               'div',
@@ -672,33 +669,33 @@ window.__ModuleLoader__.load({
             ),
           ),
 
-          h(
-            'div',
-            { style: S.section },
-            h('span', { style: S.title }, h('span', { style: S.accent }), 'Внешний плагин синхронизации'),
-            external?.found
-              ? h(
+          external?.found
+            ? h(
+                'div',
+                { style: S.section },
+                h('span', { style: S.title }, h('span', { style: S.accent }), 'Внешний плагин синхронизации'),
+                h(
                   'span',
                   { style: S.hint },
                   external.callable
                     ? `Найден «${external.name}» с программным интерфейсом — синхронизация выполняется через него.`
                     : `Найден «${external.name}»${external.configured ? ' (настроен)' : ''}, но он не публикует интерфейс для вызова. Используется встроенный движок; чтобы плагины не мешали друг другу, оставьте активным один.`,
-                )
-              : h('span', { style: S.hint }, 'Не найден — используется встроенный движок.'),
-            external?.callable
-              ? h(
-                  'label',
-                  { style: S.checkboxRow },
-                  h('input', {
-                    type: 'checkbox',
-                    checked: draft.useExternal,
-                    onChange: (event) => set({ useExternal: event.target.checked }),
-                  }),
-                  h('span', null, 'Предпочитать внешний плагин, пока он доступен'),
-                )
-              : null,
-            mode === 'external' ? h('span', { style: S.ok }, 'Активен режим: через внешний плагин') : null,
-          ),
+                ),
+                external.callable
+                  ? h(
+                      'label',
+                      { style: S.checkboxRow },
+                      h('input', {
+                        type: 'checkbox',
+                        checked: draft.useExternal,
+                        onChange: (event) => set({ useExternal: event.target.checked }),
+                      }),
+                      h('span', null, 'Предпочитать внешний плагин, пока он доступен'),
+                    )
+                  : null,
+                mode === 'external' ? h('span', { style: S.ok }, 'Активен режим: через внешний плагин') : null,
+              )
+            : null,
 
           h(
             'div',
@@ -992,19 +989,9 @@ window.__ModuleLoader__.load({
         locale: NS,
       }, SyncCard));
 
-      // Настройки нужны и на странице плагина: там менеджер показывает README,
-      // и без этой секции поля остаются только в строке списка.
-      try {
-        ctx.slots.inject('plugins.detail.section', () => ctx.slots.register({
-          name: 'plugins.detail.section',
-          id: 'dsh-sync-settings',
-          order: 60,
-          label: () => t('title'),
-          locale: NS,
-        }, SyncCard));
-      } catch (error) {
-        console.error('[dsh-sync] секция настроек на странице плагина недоступна:', error);
-      }
+      // На странице плагина карточка не нужна: менеджер показывает описание, а
+      // настройки живут в карточке своего плагина в списке. Иначе одна и та же
+      // секция появляется на странице каждого установленного плагина.
 
       // Пункт в левой панели (рядом с «Расходами» и «Плагинами») и его страница:
       // пара slots.main + sidebar.panellist — тот же приём, что у других плагинов.
