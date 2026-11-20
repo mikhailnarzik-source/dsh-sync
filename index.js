@@ -572,6 +572,12 @@ async function runSync(ctx, action) {
           viaChild.message = `${viaChild.message}; привязано к рабочему пространству: ${attached}`
           await writeLastRun({ ...viaChild })
         }
+        const deletedIds = viaChild.pull?.deletedIds ?? []
+        if (deletedIds.length > 0) {
+          const detached = await detachSessions(ctx, deletedIds)
+          viaChild.message = `${viaChild.message}; убрано из пространств: ${detached}`
+          await writeLastRun({ ...viaChild })
+        }
       } catch {
         // привязка — вспомогательный шаг, синхронизация уже прошла
       }
@@ -600,6 +606,11 @@ async function runSync(ctx, action) {
       // лежало на диске после прошлых синхронизаций.
       const attached = await attachAllProjects(ctx, config)
       if (attached > 0) messages.push(`привязано к рабочему пространству: ${attached}`)
+      const deletedIds = result.pull?.deletedIds ?? []
+      if (deletedIds.length > 0) {
+        const detached = await detachSessions(ctx, deletedIds)
+        messages.push(`удалено по отметкам других устройств: ${deletedIds.length}; убрано из пространств: ${detached}`)
+      }
     }
     if (action !== 'pull') {
       const entry = Object.values(config.projects ?? {})[0]
@@ -1022,6 +1033,39 @@ async function attachAllProjects(ctx, config) {
     }
   }
   return attached
+}
+
+/** Убрать удалённые сессии из рабочих пространств, чтобы они исчезли из списка. */
+async function detachSessions(ctx, sessionIds) {
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) return 0
+  let registry
+  try {
+    registry = ctx?.get?.('workspaceRegistry')
+  } catch {
+    return 0
+  }
+  if (registry === undefined || registry === null || typeof registry.list !== 'function') return 0
+
+  const wanted = new Set(sessionIds)
+  let detached = 0
+  for (const workspace of registry.list() ?? []) {
+    let known
+    try {
+      known = new Set(Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : [])
+    } catch {
+      continue
+    }
+    for (const id of wanted) {
+      if (!known.has(id)) continue
+      try {
+        await workspace.detachSession(id)
+        detached += 1
+      } catch {
+        // уже отвязана
+      }
+    }
+  }
+  return detached
 }
 
 /**
