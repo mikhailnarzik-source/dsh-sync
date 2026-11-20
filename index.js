@@ -387,7 +387,7 @@ async function localSessionsFor(ctx, home, projectPath) {
         total += 1
         if (typeof path !== 'string') continue
         if (projectPath === '' || !samePath(header.cwd, projectPath)) continue
-        sessions.push({ id: header.id, cwd: header.cwd, path })
+        sessions.push({ id: header.id, cwd: header.cwd, path, parent: header.parentSession ?? '' })
       }
       return { sessions, total, source: 'persistence', error: '' }
     } catch (error) {
@@ -546,7 +546,24 @@ async function runSync(ctx, action) {
   // Основной путь — отдельный процесс: в host-процессе DSH файловый обход и
   // разбор логов могут вести себя иначе, чем в обычном Node.
   const viaChild = await runViaChild(action)
-  if (viaChild !== undefined) return viaChild
+  if (viaChild !== undefined) {
+    // Приём выполняет дочерний процесс, а привязать новые сессии к рабочему
+    // пространству может только host-часть: у неё есть реестр.
+    if (action !== 'push' && viaChild.ok === true) {
+      try {
+        const entry = Object.values(config.projects ?? {})[0]
+        const located = await localSessionsFor(ctx, home, entry?.path ?? '')
+        const attached = await attachSessions(ctx, entry?.path ?? '', located.sessions.filter(session => !session.parent).map(session => session.id))
+        if (attached > 0) {
+          viaChild.message = `${viaChild.message}; привязано к рабочему пространству: ${attached}`
+          await writeLastRun({ ...viaChild })
+        }
+      } catch {
+        // привязка — вспомогательный шаг, синхронизация уже прошла
+      }
+    }
+    return viaChild
+  }
 
   const started = Date.now()
   const result = { pull: null, push: null }
@@ -564,6 +581,13 @@ async function runSync(ctx, action) {
         messages.push(`подхвачено проектов из зеркала: ${adopted}; принято: ${result.pull.imported}`)
         if (result.pull.errors?.length) messages.push(`ошибок чтения: ${result.pull.errors.length} (${result.pull.errors[0].message})`)
       }
+
+      // Привязать к рабочему пространству и импортированное, и то, что уже
+      // лежало на диске после прошлых синхронизаций.
+      const entry = Object.values(config.projects ?? {})[0]
+      const located = await localSessionsFor(ctx, home, entry?.path ?? '')
+      const attached = await attachSessions(ctx, entry?.path ?? '', located.sessions.filter(session => !session.parent).map(session => session.id))
+      if (attached > 0) messages.push(`привязано к рабочему пространству: ${attached}`)
     }
     if (action !== 'pull') {
       const entry = Object.values(config.projects ?? {})[0]
@@ -921,6 +945,57 @@ async function createRepository(ctx) {
   }
 }
 
+/**
+ * Привязать сессии к рабочему пространству проекта.
+ *
+ * DSH выполняет bootstrap реестра только при первой инициализации: сессии,
+ * добавленные позже (нашим плагином или вручную), на диске есть, но в списке
+ * не появляются. `attachSession` идемпотентен, поэтому повторный вызов дешёвый.
+ */
+async function attachSessions(ctx, projectPath, sessionIds) {
+  if (typeof projectPath !== 'string' || projectPath.length === 0 || sessionIds.length === 0) return 0
+
+  let registry
+  try {
+    registry = ctx?.get?.('workspaceRegistry')
+  } catch {
+    registry = undefined
+  }
+  if (registry === undefined || registry === null || typeof registry.list !== 'function') return 0
+
+  let workspace
+  try {
+    for (const candidate of registry.list() ?? []) {
+      const path = candidate?.path ?? candidate?.record?.path
+      if (typeof path === 'string' && samePath(path, projectPath)) {
+        workspace = candidate
+        break
+      }
+    }
+  } catch {
+    return 0
+  }
+  if (workspace === undefined || typeof workspace.attachSession !== 'function') return 0
+
+  let attached = 0
+  let known = new Set()
+  try {
+    known = new Set(Array.isArray(workspace.sessionIds) ? workspace.sessionIds : [])
+  } catch {
+    known = new Set()
+  }
+  for (const id of sessionIds.slice(0, 1000)) {
+    if (known.has(id)) continue
+    try {
+      await workspace.attachSession(id)
+      attached += 1
+    } catch {
+      // уже привязана, либо cwd не совпал — не повод ронять синхронизацию
+    }
+  }
+  return attached
+}
+
 /** Подхватить проекты из метаданных зеркала, сопоставив их с локальными путями. */
 async function adoptMirrorProjects(ctx, config, pullResult) {
   const projects = pullResult?.mirrorProjects ?? []
@@ -1109,7 +1184,7 @@ export function apply(ctx) {
   })
 
   startAutomation(ctx)
-  void writeStatus({ applied: true, version: '0.2.1', pid: process.pid, failures })
+  void writeStatus({ applied: true, pid: process.pid, failures })
 }
 
 /** Записать отметку о загрузке host-части: помогает диагностировать «404». */
