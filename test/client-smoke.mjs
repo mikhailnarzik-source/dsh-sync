@@ -56,10 +56,11 @@ const ctx = {
 exported.apply(ctx)
 
 assert.equal(boundNs, 'dshSync')
-assert.equal(registrations.length, 4)
+assert.equal(registrations.length, 5)
 assert.ok(registrations.some(entry => entry.options.name === 'plugins.detail.section'), 'секция настроек на странице плагина')
 assert.ok(registrations.some(entry => entry.options.name === 'main' && entry.options.key === 'dsh-sync'), 'страница плагина в main')
 assert.ok(registrations.some(entry => entry.options.name === 'sidebar.panellist'), 'пункт в левой панели')
+assert.ok(registrations.some(entry => entry.options.name === 'sidebar.session.row.leading'), 'индикатор в строке сессии')
 const cardRegistration = registrations.find(entry => entry.options.name === 'plugins.item')
 assert.ok(cardRegistration, 'карточка плагина регистрируется')
 const { options, component } = cardRegistration
@@ -85,6 +86,10 @@ assert.ok(panel.children.length >= 3, 'страница синхронизаци
 const sidebarRegistration = registrations.find(entry => entry.options.name === 'sidebar.panellist')
 const icon = sidebarRegistration.component({ size: 16 })
 assert.equal(icon.type, 'svg')
+
+// Индикатор без данных ничего не рисует (точка появляется после ответа host).
+const dotRegistration = registrations.find(entry => entry.options.name === 'sidebar.session.row.leading')
+assert.equal(dotRegistration.component({ sessionId: 'session-x' }), null)
 
 console.log('client smoke: OK')
 console.log('  слот:', options.name, '| id:', options.id, '| label:', options.label())

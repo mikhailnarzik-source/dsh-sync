@@ -26,7 +26,7 @@ assert.equal(name, 'dsh-sync')
 assert.deepEqual(inject, ['connection', 'tools', 'sessionPersistence'])
 apply(ctx)
 
-assert.deepEqual([...routes.keys()].sort(), ['/api/dsh-sync/config', '/api/dsh-sync/create-repo', '/api/dsh-sync/diagnostics', '/api/dsh-sync/run', '/api/dsh-sync/state', '/api/dsh-sync/update', '/api/dsh-sync/update/apply'])
+assert.deepEqual([...routes.keys()].sort(), ['/api/dsh-sync/config', '/api/dsh-sync/create-repo', '/api/dsh-sync/diagnostics', '/api/dsh-sync/run', '/api/dsh-sync/sessions', '/api/dsh-sync/state', '/api/dsh-sync/update', '/api/dsh-sync/update/apply'])
 assert.deepEqual([...tools.keys()].sort(), ['sync_run', 'sync_status'])
 
 const call = async (path, payload) => {
@@ -160,6 +160,11 @@ assert.equal(noToken.body.code, 'no-token')
 const diagnostics = await call('/api/dsh-sync/diagnostics', {})
 assert.equal(diagnostics.body.ok, true)
 assert.match(diagnostics.body.report, /диагностика/i)
+
+// 12. состояние сессий для индикаторов
+const states = await call('/api/dsh-sync/sessions', {})
+assert.equal(states.body.ok, true)
+assert.equal(typeof states.body.states, 'object')
 
 console.log('plugin smoke: OK')
 console.log('  маршруты:', [...routes.keys()].join(', '))

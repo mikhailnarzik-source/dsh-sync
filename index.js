@@ -7,7 +7,7 @@
  * сохраняет параметры в `~/.dsh/dsh-sync.json` и запускает `pull`/`push`.
  * Токены нигде не хранятся: git использует штатный credential helper.
  */import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +19,7 @@ import { defaultConfig, loadConfig, saveConfig } from './lib/config.mjs'
 import { encodeSegment, projectKey, samePath } from './lib/format.mjs'
 import { collectDiagnostics } from './lib/diagnostics.mjs'
 import { readHistory, recordRun } from './lib/history.mjs'
+import { readLedger, sessionState } from './lib/ledger.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
 import { pull, push } from './lib/sync.mjs'
@@ -34,6 +35,7 @@ const CONFIG_PATH = '/api/dsh-sync/config'
 const RUN_PATH = '/api/dsh-sync/run'
 const CREATE_REPO_PATH = '/api/dsh-sync/create-repo'
 const DIAG_PATH = '/api/dsh-sync/diagnostics'
+const SESSIONS_PATH = '/api/dsh-sync/sessions'
 const UPDATE_PATH = '/api/dsh-sync/update'
 const UPDATE_APPLY_PATH = '/api/dsh-sync/update/apply'
 
@@ -961,7 +963,51 @@ async function createRepository(ctx) {
   }
 }
 
-/** Привязать сессии всех настроенных проектов к их рабочим пространствам. */
+/**
+ * Состояние каждой сессии для индикатора в списке: зелёный — совпадает с
+ * зеркалом, оранжевый — есть неотправленные изменения, красный — ещё не уезжала.
+ * Результат кэшируется на несколько секунд: список перерисовывается часто.
+ */
+let sessionStatesCache = { at: 0, value: undefined }
+
+async function sessionStates(ctx) {
+  if (sessionStatesCache.value !== undefined && Date.now() - sessionStatesCache.at < 5_000) {
+    return sessionStatesCache.value
+  }
+
+  const home = dshHome()
+  const config = await loadConfig(home)
+  const ledger = await readLedger(home)
+  const states = {}
+
+  for (const entry of Object.values(config.projects ?? {})) {
+    const projectPath = typeof entry?.path === 'string' ? entry.path : ''
+    if (projectPath === '') continue
+    let located
+    try {
+      located = await localSessionsFor(ctx, home, projectPath)
+    } catch {
+      continue
+    }
+    for (const session of located.sessions) {
+      if (typeof session.path !== 'string') continue
+      let info
+      try {
+        info = await stat(session.path)
+      } catch {
+        info = undefined
+      }
+      states[session.id] = sessionState(session.id, info, ledger)
+    }
+  }
+
+  const value = { ok: true, states }
+  sessionStatesCache = { at: Date.now(), value }
+  return value
+}
+
+/**
+ * Привязать сессии всех настроенных проектов к их рабочим пространствам. */
 async function attachAllProjects(ctx, config) {
   let attached = 0
   for (const entry of Object.values(config.projects ?? {})) {
@@ -1149,6 +1195,14 @@ export function apply(ctx) {
       const gitVersion = probe.code === 0 ? probe.stdout.trim().replace(/^git version\s*/, '') : 'не найден'
       const report = await collectDiagnostics(dshHome(), { gitVersion })
       return json({ ok: true, report })
+    } catch (error) {
+      return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
+    }
+  })
+
+  route('sessions', SESSIONS_PATH, async () => {
+    try {
+      return json(await sessionStates(ctx))
     } catch (error) {
       return json({ ok: false, message: error instanceof Error ? error.message : String(error) }, 500)
     }

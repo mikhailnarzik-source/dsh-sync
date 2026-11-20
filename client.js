@@ -720,7 +720,69 @@ window.__ModuleLoader__.load({
         console.error('[dsh-sync] пункт в левой панели недоступен:', error);
       }
 
-      
+      // Индикатор перед названием сессии: точка состояния синхронизации.
+      try {
+        ctx.slots.inject('sidebar.session.row.leading', () => ctx.slots.register({
+          name: 'sidebar.session.row.leading',
+          id: 'dsh-sync',
+          order: 60,
+        }, SyncDot));
+      } catch (error) {
+        console.error('[dsh-sync] индикатор в списке сессий недоступен:', error);
+      }
+    }
+
+    // --- индикатор синхронизации в списке сессий --------------------------
+    // Один общий запрос на все строки: список перерисовывается часто, а
+    // состояние меняется редко, поэтому кэш на 20 секунд.
+    const SESSIONS_PATH = '/api/dsh-sync/sessions';
+    const sessionStates = { data: {}, at: 0, listeners: new Set() };
+
+    async function refreshSessionStates(force) {
+      if (!force && Date.now() - sessionStates.at < 20_000) return;
+      try {
+        const result = await post(SESSIONS_PATH, {});
+        sessionStates.data = result?.states ?? {};
+        sessionStates.at = Date.now();
+        for (const listener of sessionStates.listeners) listener();
+      } catch {
+        // без индикаторов список работает как обычно
+      }
+    }
+
+    function useSessionStates() {
+      const [, bump] = React.useState(0);
+      React.useEffect(() => {
+        const listener = () => bump((value) => value + 1);
+        sessionStates.listeners.add(listener);
+        void refreshSessionStates(false);
+        return () => sessionStates.listeners.delete(listener);
+      }, []);
+      return sessionStates.data;
+    }
+
+    function SyncDot({ sessionId }) {
+      const states = useSessionStates();
+      const state = states[sessionId];
+      if (state === undefined) return null;
+      const color = state === 'green' ? '#2f9e44' : state === 'red' ? '#d1242f' : '#e8590c';
+      const title = state === 'green'
+        ? 'Синхронизировано'
+        : state === 'red'
+          ? 'Не синхронизировано — ещё ни разу не уходило в зеркало'
+          : 'Есть неотправленные изменения';
+      return h('span', {
+        title,
+        style: {
+          display: 'inline-block',
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: color,
+          marginRight: 4,
+          flex: '0 0 auto',
+        },
+      });
     }
 
     exports.apply = apply;
