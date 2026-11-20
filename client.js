@@ -181,7 +181,7 @@ window.__ModuleLoader__.load({
         const [update, setUpdate] = React.useState(null);
         const [updateNote, setUpdateNote] = React.useState('');
         const [probe, setProbe] = React.useState(null);
-        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', yandexToken: '', yandexPath: 'dsh-sync', webdavLogin: '', webdavPassword: '', webdavPath: 'dsh-sync', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
+        const [draft, setDraft] = React.useState({ backend: 'git', remote: '', repoDir: '', yandexToken: '', yandexPath: 'dsh-sync', webdavLogin: '', webdavPassword: '', webdavPath: 'dsh-sync', secondaryBackend: 'none', secondaryRemote: '', secondaryLogin: '', secondaryPassword: '', secondaryPath: 'dsh-sync', projectPath: '', projectId: '', attachments: false, autoUpdate: false, useExternal: true });
         const [touched, setTouched] = React.useState(false);
 
         React.useEffect(() => {
@@ -235,6 +235,11 @@ window.__ModuleLoader__.load({
             webdavLogin: data.config.webdavLogin ?? '',
             webdavPassword: data.config.webdavPassword ?? '',
             webdavPath: data.config.webdavPath ?? 'dsh-sync',
+            secondaryBackend: data.config.secondary?.backend ?? 'none',
+            secondaryRemote: data.config.secondary?.remote ?? '',
+            secondaryLogin: data.config.secondary?.webdavLogin ?? '',
+            secondaryPassword: data.config.secondary?.webdavPassword ?? '',
+            secondaryPath: data.config.secondary?.webdavPath ?? 'dsh-sync',
             useExternal: data.config.useExternal !== false,
           });
         }, [data?.config?.remote, data?.config?.projectPath, data?.config?.projectId, data?.config?.attachments, data?.config?.useExternal, touched]);
@@ -563,6 +568,60 @@ window.__ModuleLoader__.load({
                 onChange: (event) => set({ autoUpdate: event.target.checked }),
               }),
               h('span', null, 'Обновлять плагин автоматически, когда выходит новая версия'),
+            ),
+            h(
+              'div',
+              { style: S.field },
+              h('span', { style: S.label }, 'Резервное хранилище (дублирование)'),
+              h(
+                'select',
+                {
+                  style: S.input,
+                  value: draft.secondaryBackend,
+                  onChange: (event) => set({ secondaryBackend: event.target.value }),
+                },
+                h('option', { value: 'none' }, 'Не дублировать'),
+                h('option', { value: 'git' }, 'Git-репозиторий'),
+                h('option', { value: 'webdav' }, 'Яндекс.Диск (WebDAV)'),
+              ),
+              draft.secondaryBackend === 'git'
+                ? h('input', {
+                    style: S.input,
+                    value: draft.secondaryRemote,
+                    placeholder: 'https://github.com/user/dsh-sessions-backup.git',
+                    onChange: (event) => set({ secondaryRemote: event.target.value }),
+                  })
+                : null,
+              draft.secondaryBackend === 'webdav'
+                ? h(
+                    'div',
+                    { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                    h('input', {
+                      style: S.input,
+                      value: draft.secondaryLogin,
+                      placeholder: 'логин Яндекса',
+                      onChange: (event) => set({ secondaryLogin: event.target.value }),
+                    }),
+                    h('input', {
+                      style: S.input,
+                      type: 'password',
+                      value: draft.secondaryPassword,
+                      placeholder: 'пароль приложения',
+                      onChange: (event) => set({ secondaryPassword: event.target.value }),
+                    }),
+                    h('input', {
+                      style: S.input,
+                      value: draft.secondaryPath,
+                      placeholder: 'dsh-sync-backup',
+                      onChange: (event) => set({ secondaryPath: event.target.value }),
+                    }),
+                  )
+                : null,
+              h(
+                'span',
+                { style: S.hint },
+                'Сессии и настройки дублируются в оба места, вложения — только в основное. Если основное хранилище недоступно, приём идёт из резервного.',
+              ),
             ),
             h(
               'div',

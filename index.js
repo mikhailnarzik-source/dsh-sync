@@ -25,7 +25,7 @@ import { probeYandex } from './lib/yandex.mjs'
 import { probeWebdav } from './lib/webdav.mjs'
 import { matchProjectPath } from './lib/mirror-meta.mjs'
 import { listLocalSessions, listMirrorSessions, sessionsOfProject } from './lib/store.mjs'
-import { pull, push } from './lib/sync.mjs'
+import { pullReplicated, pushReplicated } from './lib/replica.mjs'
 import { applyUpdate, checkForUpdate, describeUpdate, updateState } from './lib/update.js'
 
 export const name = 'dsh-sync'
@@ -577,6 +577,35 @@ async function saveSettings(ctx, payload) {
   }
   config.attachments = payload.attachments === true
   config.autoUpdate = payload.autoUpdate === true
+
+  // Резервное хранилище: туда дублируются сессии (без вложений).
+  if (typeof payload.secondaryBackend === 'string') {
+    const kind = payload.secondaryBackend
+    if (kind === '' || kind === 'none') {
+      delete config.secondary
+    } else if (['git', 'folder', 'yandex', 'webdav'].includes(kind)) {
+      const secondary = {
+        enabled: true,
+        backend: kind,
+        repoDir: join(home, 'dsh-sync', `replica-${kind}`),
+      }
+      if (kind === 'git') {
+        secondary.remote = typeof payload.secondaryRemote === 'string' ? payload.secondaryRemote.trim() : config.secondary?.remote
+      }
+      if (kind === 'webdav') {
+        const login = typeof payload.secondaryLogin === 'string' ? payload.secondaryLogin.trim() : ''
+        const password = typeof payload.secondaryPassword === 'string' ? payload.secondaryPassword.trim() : ''
+        if (login !== '') secondary.webdavLogin = login
+        else if (config.secondary?.webdavLogin) secondary.webdavLogin = config.secondary.webdavLogin
+        if (password !== '') secondary.webdavPassword = password
+        else if (config.secondary?.webdavPassword) secondary.webdavPassword = config.secondary.webdavPassword
+        secondary.webdavPath = typeof payload.secondaryPath === 'string' && payload.secondaryPath.trim() !== ''
+          ? payload.secondaryPath.trim()
+          : config.secondary?.webdavPath ?? 'dsh-sync'
+      }
+      config.secondary = secondary
+    }
+  }
   if (typeof payload.useExternal === 'boolean') config.useExternal = payload.useExternal
   config.projects = { [projectId]: { path: projectPath, title: projectId } }
   await saveConfig(home, config)
@@ -719,7 +748,7 @@ async function runSync(ctx, action) {
       // В зеркале могут быть проекты, которых здесь ещё нет: подхватываем по имени.
       const adopted = await adoptMirrorProjects(ctx, config, result.pull)
       if (adopted > 0) {
-        result.pull = await pull({ home, config })
+        result.pull = await pullReplicated({ home, config })
         messages.push(`подхвачено проектов из зеркала: ${adopted}; принято: ${result.pull.imported}`)
         if (result.pull.errors?.length) messages.push(`ошибок чтения: ${result.pull.errors.length} (${result.pull.errors[0].message})`)
       }
@@ -737,7 +766,7 @@ async function runSync(ctx, action) {
     if (action !== 'pull') {
       const entry = Object.values(config.projects ?? {})[0]
       const located = await localSessionsFor(ctx, home, entry?.path ?? '')
-      result.push = await push({ home, config, sessions: located.sessions })
+      result.push = await pushReplicated({ home, config, sessions: located.sessions })
       messages.push(`отправлено: ${result.push.pushed}${result.push.committed ? ', коммит создан' : ', изменений нет'}`)
       if (result.push.failures?.length) {
         const first = result.push.failures[0]
