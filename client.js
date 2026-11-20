@@ -27,6 +27,37 @@ window.__ModuleLoader__.load({
     const en = { title: 'Session sync' };
     const ru = { title: 'Синхронизация сессий' };
 
+    // Нативные выпадающие списки и поля рисуются системными цветами: без
+    // color-scheme они остаются светлыми в тёмной теме.
+    const themeScheme = () => {
+      try {
+        const background = getComputedStyle(document.body).backgroundColor;
+        const parts = background.match(/[0-9.]+/g);
+        if (parts === null || parts.length < 3) return 'dark';
+        const [r, g, b] = parts.map(Number);
+        return r * 0.299 + g * 0.587 + b * 0.114 > 140 ? 'light' : 'dark';
+      } catch {
+        return 'dark';
+      }
+    };
+
+    // Применяем тему к нативным контролам один раз на всё приложение: так
+    // выпадающие списки и поля во всех плагинах совпадают с темой.
+    const applyThemeScheme = () => {
+      try {
+        document.documentElement.style.colorScheme = themeScheme();
+      } catch {
+        // вне браузера — нечего настраивать
+      }
+    };
+    try {
+      applyThemeScheme();
+      const observer = new MutationObserver(applyThemeScheme);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-color-scheme', 'style'] });
+    } catch {
+      // без DOM работаем как раньше
+    }
+
     const S = {
       page: { display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13 },
       section: {
@@ -46,16 +77,19 @@ window.__ModuleLoader__.load({
       badge: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 500 },
       field: { display: 'flex', flexDirection: 'column', gap: 4 },
       label: { fontSize: 12, fontWeight: 500, opacity: 0.85 },
-      input: {
-        width: '100%',
-        boxSizing: 'border-box',
-        padding: '7px 10px',
-        borderRadius: 8,
-        border: '1px solid rgba(128,128,128,0.35)',
-        background: 'transparent',
-        color: 'inherit',
-        fontSize: 13,
-        fontFamily: 'inherit',
+      get input() {
+        return {
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: '7px 10px',
+          borderRadius: 8,
+          border: '1px solid rgba(128,128,128,0.35)',
+          background: 'transparent',
+          color: 'inherit',
+          fontSize: 13,
+          fontFamily: 'inherit',
+          colorScheme: themeScheme(),
+        };
       },
       buttons: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
       button: {
