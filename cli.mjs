@@ -331,6 +331,7 @@ async function main() {
     console.log(`обновлено:     ${result.updated}`)
     console.log(`конфликтов:    ${result.conflicts}`)
     console.log(`без изменений: ${result.unchanged}, локально новее: ${result.ahead}, открыто: ${result.locked}`)
+  if ((result.deleted ?? 0) > 0) console.log(`удалено по отметкам других устройств: ${result.deleted}`)
     if (result.attachments) console.log(`вложений восстановлено: ${result.attachments.restored}`)
     for (const fork of result.forkIds ?? []) console.log(`  fork: ${fork.from} → ${fork.to}`)
     if (result.unknownProjects.length > 0) {

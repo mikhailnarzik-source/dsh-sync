@@ -6,7 +6,8 @@
  * карточка в настройках читает состояние через `ctx.connection.fetch`,
  * сохраняет параметры в `~/.dsh/dsh-sync.json` и запускает `pull`/`push`.
  * Токены нигде не хранятся: git использует штатный credential helper.
- */import { existsSync } from 'node:fs'
+ */
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { homedir, tmpdir } from 'node:os'
@@ -274,6 +275,30 @@ async function checkEnvironment(config) {
     hint: 'Укажите путь к проекту ниже — папка должна существовать.',
   })
 
+  // Для папки облака проверяем саму папку: git и сеть не нужны вовсе.
+  if (config?.backend === 'folder') {
+    const folder = config.repoDir ?? ''
+    let ok = false
+    let detail = 'не задана'
+    if (folder !== '') {
+      try {
+        const info = await stat(folder)
+        ok = info.isDirectory()
+        detail = ok ? 'папка доступна' : 'это не папка'
+      } catch {
+        detail = 'папки нет'
+      }
+    }
+    checks.push({
+      id: 'remote',
+      title: 'Папка облачного диска',
+      ok,
+      detail,
+      hint: 'Укажите папку, которую синхронизирует Яндекс.Диск (обычно C:\\Users\\вы\\YandexDisk\\dsh-sync).',
+    })
+    return checks
+  }
+
   const remote = config?.remote ?? ''
   if (remote.length > 0 && gitOk) {
     // Сетевой опрос кешируем: карточка перерисовывается часто, а ls-remote
@@ -365,6 +390,16 @@ async function readState(ctx) {
   const currentFingerprint = await computeFingerprint(ctx)
   const pending = automation.fingerprint !== '' && currentFingerprint !== '' && currentFingerprint !== automation.fingerprint
 
+  // Подсказка для папки облака: ищем установленный клиент Яндекс.Диска.
+  const suggestedFolder = (() => {
+    const names = ['YandexDisk', 'Яндекс.Диск', 'Yandex.Disk', 'OneDrive']
+    for (const name of names) {
+      const candidate = join(homedir(), name)
+      if (existsSync(candidate)) return join(candidate, 'dsh-sync')
+    }
+    return ''
+  })()
+
   // Диагностика расхождения счётчиков: если локальных сессий не видно, а в
   // зеркале они есть, сохраняем, что именно просканировано.
   if (local === 0 && mirror > 0) {
@@ -397,6 +432,7 @@ async function readState(ctx) {
     checks,
     ready: checks.every(check => check.ok),
     status: { local, mirror, onlyLocal, onlyMirror },
+    suggestedFolder,
     pending,
     history,
     automation: {

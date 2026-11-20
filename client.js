@@ -371,15 +371,30 @@ window.__ModuleLoader__.load({
             ),
             draft.backend === 'folder'
               ? h(
-                  'label',
+                  'div',
                   { style: S.field },
-                  h('span', { style: S.label }, 'Папка зеркала'),
+                  h('span', { style: S.label }, 'Папка Яндекс.Диска'),
                   h('input', {
                     style: S.input,
                     value: draft.repoDir,
-                    placeholder: 'C:\\Users\\me\\YandexDisk\\dsh-sync',
+                    placeholder: data?.suggestedFolder || 'C:\\Users\\me\\YandexDisk\\dsh-sync',
                     onChange: (event) => set({ repoDir: event.target.value }),
                   }),
+                  h(
+                    'span',
+                    { style: S.hint },
+                    'Установите клиент Яндекс.Диска и выберите папку внутри него — синхронизацией займётся сам клиент, git и токены не нужны.',
+                  ),
+                  data?.suggestedFolder && draft.repoDir === ''
+                    ? h(
+                        'button',
+                        {
+                          style: S.button,
+                          onClick: () => set({ repoDir: data.suggestedFolder }),
+                        },
+                        `Подставить ${data.suggestedFolder}`,
+                      )
+                    : null,
                 )
               : h(
                   'label',

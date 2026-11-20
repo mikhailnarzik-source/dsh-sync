@@ -8,7 +8,7 @@ import { zstdCompressSync } from 'node:zlib'
 import { randomUUID } from 'node:crypto'
 
 import { sanitizeLog } from '../lib/sync.mjs'
-import { splitLog } from '../lib/store.mjs'
+import { listMirrorSessions, splitLog } from '../lib/store.mjs'
 import { acquireLock } from '../lib/lock.mjs'
 
 function sessionLog(events) {
@@ -69,5 +69,25 @@ test('зависший лок старше порога снимается', asy
     assert.equal(existsSync(path), false)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('конфликтующие копии файлов облака не считаются сессиями', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-sync-mirror-'))
+  try {
+    const id = `session-${randomUUID()}`
+    const good = join(root, 'sessions', 'p', id)
+    const clash = join(root, 'sessions', 'p', `${id} (конфликтующая копия)`)
+    await mkdir(good, { recursive: true })
+    await mkdir(clash, { recursive: true })
+    const bytes = Buffer.concat([zstdCompressSync(Buffer.from(`${JSON.stringify({ type: 'session', version: 4, id, createdAt: Date.now(), cwd: 'C:\\work\\x', isSeeded: false, delegationDepth: 0 })}\n`))])
+    await writeFile(join(good, 'session.v4.jsonl.zstd'), bytes)
+    await writeFile(join(clash, 'session.v4.jsonl.zstd'), bytes)
+
+    const sessions = await listMirrorSessions(root, 'p')
+    assert.equal(sessions.length, 1, 'копия отброшена')
+    assert.equal(sessions[0].id, id)
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
