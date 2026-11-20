@@ -29,8 +29,17 @@ window.__ModuleLoader__.load({
 
     const S = {
       page: { display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13 },
-      section: { display: 'flex', flexDirection: 'column', gap: 6 },
-      title: { fontSize: 13, fontWeight: 600 },
+      section: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: '12px 14px',
+        border: '1px solid rgba(128,128,128,0.22)',
+        borderRadius: 12,
+        background: 'rgba(128,128,128,0.04)',
+      },
+      title: { fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 },
+      accent: { width: 3, height: 16, borderRadius: 2, background: 'rgba(80,120,200,0.75)', flex: '0 0 auto' },
       hint: { fontSize: 12, opacity: 0.75, lineHeight: 1.5 },
       row: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 },
       dot: { width: 8, height: 8, borderRadius: 4, flex: '0 0 auto' },
@@ -40,7 +49,7 @@ window.__ModuleLoader__.load({
       input: {
         width: '100%',
         boxSizing: 'border-box',
-        padding: '6px 9px',
+        padding: '7px 10px',
         borderRadius: 8,
         border: '1px solid rgba(128,128,128,0.35)',
         background: 'transparent',
@@ -50,7 +59,7 @@ window.__ModuleLoader__.load({
       },
       buttons: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
       button: {
-        padding: '6px 12px',
+        padding: '7px 13px',
         borderRadius: 8,
         border: '1px solid rgba(128,128,128,0.35)',
         background: 'transparent',
@@ -60,7 +69,7 @@ window.__ModuleLoader__.load({
         fontFamily: 'inherit',
       },
       primary: {
-        padding: '6px 14px',
+        padding: '7px 14px',
         borderRadius: 8,
         border: '1px solid rgba(80,120,200,0.55)',
         background: 'rgba(80,120,200,0.16)',
@@ -346,7 +355,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: S.section },
-            h('span', { style: S.title }, 'Обновление плагина'),
+            h('span', { style: S.title }, h('span', { style: S.accent }), 'Обновление плагина'),
             h(
               'span',
               { style: S.hint },
@@ -369,7 +378,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: S.section },
-            h('span', { style: S.title }, 'Проверка окружения'),
+            h('span', { style: S.title }, h('span', { style: S.accent }), 'Проверка окружения'),
             checks.length === 0
               ? h('span', { style: S.hint }, state.loading ? 'Проверка…' : 'Не удалось получить данные от host-части.')
               : null,
@@ -390,7 +399,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: S.section },
-            h('span', { style: S.title }, 'Настройки'),
+            h('span', { style: S.title }, h('span', { style: S.accent }), 'Настройки'),
             h(
               'label',
               { style: S.field },
@@ -666,7 +675,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: S.section },
-            h('span', { style: S.title }, 'Внешний плагин синхронизации'),
+            h('span', { style: S.title }, h('span', { style: S.accent }), 'Внешний плагин синхронизации'),
             external?.found
               ? h(
                   'span',
@@ -694,7 +703,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: S.section },
-            h('span', { style: S.title }, 'Синхронизация'),
+            h('span', { style: S.title }, h('span', { style: S.accent }), 'Синхронизация'),
             status
               ? h('span', { style: S.hint }, `Сессий локально: ${status.local}, в зеркале: ${status.mirror}. Только локально: ${status.onlyLocal}, только в зеркале: ${status.onlyMirror}.`)
               : null,

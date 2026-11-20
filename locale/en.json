@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Session sync",
+    "description": "Keeps session history identical on every device: a private git repository, a cloud folder or Yandex.Disk. Pulls on start, pushes changes, reports errors, and writes a human-readable backup catalog.",
+    "detail": "docs/DETAIL.md"
+  }
+}
